@@ -1,82 +1,105 @@
 # LINwalker
 
-**LINwalker** is a lightweight Python module for exploring hierarchical population structure and interspecies introgression using LIN codes derived from cgMLST profiles.
+**LINwalker** is a lightweight Python toolkit for exploring hierarchical population structure and interspecies introgression using LIN codes (e.g., from PubMLST cgMLST schemes).
 
-LINwalker treats LIN codes as ordered, multi-resolution descriptors rather than flat identifiers, enabling scale-aware analysis of host association, lineage structure, and recombination.
+LINwalker treats LIN codes as **ordered, multi-resolution descriptors** rather than flat identifiers, enabling scale-aware analysis of host association, lineage structure, and recombination/introgression.
 
-The module is intentionally minimal, deterministic, and focused on interpretation rather than prediction.
+## What it does
 
----
+LINwalker provides three core analyses:
 
-## Core ideas
+1. **Diversification by scale** — how the number of unique LIN IDs grows as you increase LIN resolution.
+2. **Mixed-species LINs** — how often LIN prefixes contain more than one species (scale-aware introgression signal).
+3. **LSDD (LIN Species Discordance Depth)** — per-isolate metric for the earliest LIN level at which its LIN cluster’s majority species differs from its assigned species.
 
-LIN codes encode hierarchical genomic similarity across ordered levels, from coarse lineage structure to near-isolate resolution.
+## Installation
 
-LINwalker exploits this hierarchy to address three biological questions:
+### Option A: pip (recommended for most users)
 
-1. At what genomic scales does population structure emerge?
-2. Where does species identity break down due to introgression?
-3. How does host ecology modulate these patterns?
+```bash
+pip install -r requirements.txt
+```
 
----
+### Option B: conda
 
-## Key functionality
+```bash
+conda create -n linwalker python=3.11 -y
+conda activate linwalker
+pip install -r requirements.txt
+```
 
-### 1. LIN diversification by scale
+## Quick start
 
-Counts the number of unique truncated LIN identifiers across hierarchical thresholds to quantify how genomic diversity accumulates with resolution.
+Minimal input is a tab-delimited table with at least:
 
-Typical uses:
-- identifying host-associated structure
-- selecting biologically meaningful LIN thresholds
-- comparing population complexity between reservoirs
+- `LINcode (...)` column (underscore-separated levels)
+- `source` (host/reservoir; optional for introgression-only workflows)
+- `species` (required for mixed-species/LSDD analyses)
 
----
+## Preparing PubMLST exports
 
-### 2. Mixed-species LIN detection
+PubMLST cgMLST exports often contain thousands of columns, many of which are not required for LIN-based analyses.
 
-Identifies LIN prefixes that contain isolates from multiple species and quantifies the fraction of mixed-species LIN clusters across thresholds.
+LINwalker provides a lightweight helper to convert raw PubMLST exports into analysis-ready tables:
 
-This provides a scale-aware view of introgression that is robust to recombination and mosaic genomes.
+```python
+from linwalker.prep import prepare_pubmlst_export
 
----
+lin_df, meta_df, cg_df = prepare_pubmlst_export(
+    "PATHSAFE_pubmlst_export.tsv.gz"
+)
+```
 
-### 3. LIN Species Discordance Depth (LSDD)
+Example usage:
 
-Defines a per-isolate metric describing the earliest LIN level at which the species composition of an isolate’s LIN cluster diverges from its assigned species.
+```python
+import pandas as pd
+from linwalker.diversification import lin_diversification
+from linwalker.introgression import mixed_species_summary, lsdd
+from linwalker.plotting import plot_diversification
 
-Lower values indicate deeper introgression; higher values indicate shallow or absent introgression.
+df = pd.read_csv("PATHSAFE_LINwalker_min.tsv", sep="\t")
 
----
+# Diversification curves (unique LINs vs threshold) by source
+div = lin_diversification(
+    df,
+    lin_col="LINcode (C. jejuni / C. coli cgMLST v2)",
+    group_col="source"
+)
+plot_diversification(div, title="LIN diversification by host reservoir")
 
-## Design principles
+# Mixed-species LINs across thresholds (requires df['species'])
+mix = mixed_species_summary(
+    df,
+    lin_col="LINcode (C. jejuni / C. coli cgMLST v2)",
+    species_col="species"
+)
 
-- Hierarchy-aware: LIN codes are treated as ordered descriptors
-- Deterministic: no stochastic models or classifiers
-- Minimal scope: focused on interpretation, not pipelines
-- Composable: designed to integrate with existing workflows
+# Per-isolate LSDD (requires df['species'])
+df_lsdd = lsdd(
+    df,
+    lin_col="LINcode (C. jejuni / C. coli cgMLST v2)",
+    species_col="species"
+)
+```
 
----
+## Source-attribution colour scheme
 
-## Intended use
+Colours are hard-coded for consistency across figures:
 
-LINwalker is not a standalone typing or source attribution pipeline.
+- chicken: yellow
+- ruminant: green
+- pig: pink
+- wild bird: purple
+- other animal: grey
+- human: near-black
 
-It is intended to:
-- support exploratory population genomic analyses
-- inform threshold selection for LIN-based classification
-- quantify interspecies introgression
-- generate publication-ready figures
+See `linwalker/palette.py`.
 
----
+## Notes on PubMLST exports
 
-## Status
-
-LINwalker is under active development.
-
-Initial applications focus on *Campylobacter jejuni* and *C. coli*, but the approach is general and applicable to any organism with hierarchical LIN codes.
-
----
+For PubMLST cgMLST exports, you usually do **not** need the full allele matrix for LINwalker.
+A minimal export that includes `id`, `isolate`, `country`, `source`, `species`, and full `LINcode` is sufficient.
 
 ## License
 
