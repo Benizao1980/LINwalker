@@ -2,28 +2,35 @@
 
 import pandas as pd
 
-def lin_diversification(df, lin_col, group_col):
+def lin_diversification(df: pd.DataFrame, lin_col: str, group_col: str) -> pd.DataFrame:
+    """Count unique LIN identifiers across hierarchical thresholds.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Input dataframe containing LIN codes and grouping labels.
+    lin_col : str
+        Column containing full LIN code as underscore-separated levels.
+    group_col : str
+        Column defining groups (e.g. source/reservoir).
+
+    Returns
+    -------
+    DataFrame with columns:
+        LIN_level, group, n_unique_LINs
     """
-    Count unique LIN identifiers across hierarchical thresholds.
+    d = df.copy()
+    d["_lin_parts"] = d[lin_col].astype(str).str.split("_")
+    max_k = d["_lin_parts"].apply(len).max()
 
-    Returns a dataframe with columns:
-    - LIN_level
-    - group
-    - n_unique_LINs
-    """
-    df = df.copy()
-    df["_lin_parts"] = df[lin_col].astype(str).str.split("_")
-    max_k = df["_lin_parts"].apply(len).max()
-
-    records = []
-
+    rows = []
     for k in range(1, max_k + 1):
-        df["_lin_k"] = df["_lin_parts"].apply(lambda x: tuple(x[:k]))
-        for grp, sub in df.groupby(group_col):
-            records.append({
+        d["_lin_k"] = d["_lin_parts"].apply(lambda x: tuple(x[:k]))
+        for grp, sub in d.groupby(group_col):
+            rows.append({
                 "LIN_level": k,
                 "group": grp,
                 "n_unique_LINs": sub["_lin_k"].nunique()
             })
 
-    return pd.DataFrame(records)
+    return pd.DataFrame(rows)

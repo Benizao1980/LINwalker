@@ -1,4 +1,6 @@
 # linwalker/palette.py
+# Fixed source-attribution palette (Wes Anderson–adjacent, print-safe).
+# Keep stable across figures/papers.
 
 SOURCE_COLOURS = {
     "chicken": "#E6C229",       # mustard yellow
