@@ -1,5 +1,5 @@
 # linwalker/palette.py
-# Fixed source-attribution palette (Wes Anderson–adjacent, print-safe).
+# Fixed source-attribution palette.
 # Keep stable across figures/papers.
 
 SOURCE_COLOURS = {
