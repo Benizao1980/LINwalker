@@ -4,6 +4,8 @@
 
 LINwalker treats LIN codes as **ordered, multi-resolution descriptors** rather than flat identifiers, enabling scale-aware analysis of host association, lineage structure, and recombination/introgression.
 
+Repository: https://github.com/Benizao1980/LINwalker
+
 ## What it does
 
 LINwalker provides three core analyses:
@@ -12,75 +14,77 @@ LINwalker provides three core analyses:
 2. **Mixed-species LINs** — how often LIN prefixes contain more than one species (scale-aware introgression signal).
 3. **LSDD (LIN Species Discordance Depth)** — per-isolate metric for the earliest LIN level at which its LIN cluster’s majority species differs from its assigned species.
 
-## Installation
-
-### Option A: pip (recommended for most users)
+## Getting started (clone → install → run)
 
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/Benizao1980/LINwalker
+cd LINwalker
 ```
 
-### Option B: conda
+### Install dependencies
 
+**Conda (recommended):**
 ```bash
 conda create -n linwalker python=3.11 -y
 conda activate linwalker
 pip install -r requirements.txt
 ```
 
-## Quick start
+**Or pip/venv:**
+```bash
+python -m venv .venv
+source .venv/bin/activate   # macOS/Linux
+# .venv\Scripts\activate    # Windows PowerShell
+pip install -r requirements.txt
+```
 
-Minimal input is a tab-delimited table with at least:
+## Command-line usage
 
-- `LINcode (...)` column (underscore-separated levels)
-- `source` (host/reservoir; optional for introgression-only workflows)
-- `species` (required for mixed-species/LSDD analyses)
+LINwalker ships with a small CLI. Run:
 
-## Preparing PubMLST exports
+```bash
+python -m linwalker --help
+```
 
-PubMLST cgMLST exports often contain thousands of columns, many of which are not required for LIN-based analyses.
+### 1) Prepare a PubMLST export (with source binning)
 
-LINwalker provides a lightweight helper to convert raw PubMLST exports into analysis-ready tables:
+This step reconstructs a full `LINcode` column and collapses heterogeneous PubMLST `source` labels into stable bins:
+**chicken, ruminant, pig, wild bird, human, other**.
+
+```bash
+python -m linwalker prep --input PATHSAFE_pubmlst_export.tsv.gz --outdir data/derived --prefix PATHSAFE
+```
+
+To preserve raw sources without binning:
+
+```bash
+python -m linwalker prep --input PATHSAFE_pubmlst_export.tsv.gz --outdir data/derived --prefix PATHSAFE --no-bin-sources
+```
+
+### 2) Diversification plot
+
+```bash
+python -m linwalker diversify --input data/derived/PATHSAFE_LINwalker_min.tsv --lin-col LINcode --group-col source --outdir results/diversification
+```
+
+### 3) Introgression summaries
+
+```bash
+python -m linwalker introgress --input data/derived/PATHSAFE_LINwalker_min.tsv --lin-col LINcode --species-col species --outdir results/introgression
+```
+
+## Python usage (API)
 
 ```python
 from linwalker.prep import prepare_pubmlst_export
-
-lin_df, meta_df, cg_df = prepare_pubmlst_export(
-    "PATHSAFE_pubmlst_export.tsv.gz"
-)
-```
-
-Example usage:
-
-```python
-import pandas as pd
 from linwalker.diversification import lin_diversification
 from linwalker.introgression import mixed_species_summary, lsdd
-from linwalker.plotting import plot_diversification
 
-df = pd.read_csv("PATHSAFE_LINwalker_min.tsv", sep="\t")
+lin_df, meta_df, cg_df = prepare_pubmlst_export("PATHSAFE_pubmlst_export.tsv.gz")
 
-# Diversification curves (unique LINs vs threshold) by source
-div = lin_diversification(
-    df,
-    lin_col="LINcode (C. jejuni / C. coli cgMLST v2)",
-    group_col="source"
-)
-plot_diversification(div, title="LIN diversification by host reservoir")
-
-# Mixed-species LINs across thresholds (requires df['species'])
-mix = mixed_species_summary(
-    df,
-    lin_col="LINcode (C. jejuni / C. coli cgMLST v2)",
-    species_col="species"
-)
-
-# Per-isolate LSDD (requires df['species'])
-df_lsdd = lsdd(
-    df,
-    lin_col="LINcode (C. jejuni / C. coli cgMLST v2)",
-    species_col="species"
-)
+div = lin_diversification(lin_df, lin_col="LINcode", group_col="source")
+mix = mixed_species_summary(lin_df, lin_col="LINcode", species_col="species")
+lin_df_lsdd = lsdd(lin_df, lin_col="LINcode", species_col="species")
 ```
 
 ## Source-attribution colour scheme
@@ -91,15 +95,10 @@ Colours are hard-coded for consistency across figures:
 - ruminant: green
 - pig: pink
 - wild bird: purple
-- other animal: grey
+- other: grey
 - human: near-black
 
 See `linwalker/palette.py`.
-
-## Notes on PubMLST exports
-
-For PubMLST cgMLST exports, you usually do **not** need the full allele matrix for LINwalker.
-A minimal export that includes `id`, `isolate`, `country`, `source`, `species`, and full `LINcode` is sufficient.
 
 ## License
 
