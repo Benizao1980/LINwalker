@@ -7,6 +7,8 @@ tables suitable for LIN-based structure and introgression analyses.
 
 Key features
 - Reconstructs full LINcode from PubMLST LINcode prefix columns (1..17) if needed
+- Handles PubMLST exports where LINcode[n] columns are *cumulative* (each cell already
+  contains an underscore-separated code up to depth n)
 - Normalises species labels
 - Bins noisy source labels into stable source categories for plotting and attribution:
   chicken, ruminant, pig, wild bird, human, other
@@ -90,10 +92,11 @@ def prepare_pubmlst_export(
     -----
     PubMLST may export LIN prefixes as either:
       - "LINcode[1]" ... "LINcode[17]"
-      - "LINcode[1] (C. jejuni / C. coli cgMLST v2)" ... etc
+      - "LINcode[1] (scheme)" ... etc
 
-    This function detects both and reconstructs a full underscore-separated
-    "LINcode" column for LINwalker.
+    Critically, PubMLST prefix columns are often *cumulative* strings:
+      LINcode[3] cell == "0_1_9"
+    In that case, the deepest column (e.g. LINcode[17]) is already the full LINcode.
     """
     path = str(path)
     with _open_text(path) as f:
@@ -121,7 +124,14 @@ def prepare_pubmlst_export(
         df["LINcode"] = df[lin_col].astype(str)
     elif prefix_lin:
         prefix_lin = sorted(prefix_lin, key=lambda x: int(re.findall(r"\d+", x)[0]))
-        df["LINcode"] = df[prefix_lin].astype(str).agg("_".join, axis=1)
+        deepest = prefix_lin[-1]
+        sample = str(df[deepest].iloc[0])
+        if "_" in sample:
+            # cumulative prefixes -> deepest already full code
+            df["LINcode"] = df[deepest].astype(str)
+        else:
+            # single-level tokens -> join
+            df["LINcode"] = df[prefix_lin].astype(str).agg("_".join, axis=1)
     elif "LINcode" in cols:
         df["LINcode"] = df["LINcode"].astype(str)
     else:
@@ -138,7 +148,6 @@ def prepare_pubmlst_export(
         "cgST (C. jejuni / C. coli cgMLST v2)",
         "LINcode"
     ]
-    # include source_raw if created
     if "source_raw" in df.columns:
         keep_meta.insert(4, "source_raw")
     meta_df = df[[c for c in keep_meta if c in df.columns]].copy()
