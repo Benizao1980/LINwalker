@@ -2,17 +2,29 @@
 
 **LINwalker** is a lightweight Python toolkit for exploring hierarchical population structure and interspecies introgression using LIN codes (e.g., from PubMLST cgMLST schemes).
 
-LINwalker treats LIN codes as **ordered, multi-resolution descriptors** rather than flat identifiers, enabling scale-aware analysis of host association, lineage structure, and recombination/introgression.
+LINwalker treats LIN codes as ordered, multi-resolution descriptors rather than flat identifiers, enabling scale-aware analysis of:
+- lineage diversification
+- reservoir structure
+- species boundary erosion (introgression)
+- concordance with MLST ST and clonal complex
 
-Repository: https://github.com/Benizao1980/LINwalker
+The package was developed and tested using Campylobacter jejuni / coli cgMLST data, but is applicable to any organism with LIN annotations.
 
 ## What it does
 
-LINwalker provides three core analyses:
+LINwalker provides four core analyses:
 
-1. **Diversification by scale** — how the number of unique LIN IDs grows as you increase LIN resolution.
-2. **Mixed-species LINs** — how often LIN prefixes contain more than one species (scale-aware introgression signal).
-3. **LSDD (LIN Species Discordance Depth)** — per-isolate metric for the earliest LIN level at which its LIN cluster’s majority species differs from its assigned species.
+1. **Diversification by scale**
+How the number of unique LIN clusters grows as LIN resolution increases (thresholds 1–17), stratified by source.
+
+2. **Mixed-species LIN clusters**
+Proportion of LIN clusters that contain more than one species at each LIN threshold — a scale-aware introgression signal.
+
+3. **LSDD (LIN Species Discordance Depth)**
+A per-isolate metric describing the earliest LIN level at which the isolate’s LIN cluster majority species differs from its assigned species.
+
+4. **LIN <> MLST concordance**
+Quantifies how well LIN clusters correspond to MLST sequence types (ST) and clonal complexes (CC) across LIN thresholds.
 
 ## Getting started (clone → install → run)
 
@@ -27,16 +39,23 @@ cd LINwalker
 ```bash
 conda create -n linwalker python=3.11 -y
 conda activate linwalker
-pip install -r requirements.txt
+conda install -c conda-forge \
+  numpy \
+  pandas \
+  matplotlib \
+  seaborn \
+  scikit-learn
+pip install -e .
 ```
 
-**Or pip/venv:**
+## Minimal plotting install (no Qt)
+
+If you do not need interactive plotting:
 ```bash
-python -m venv .venv
-source .venv/bin/activate   # macOS/Linux
-# .venv\Scripts\activate    # Windows PowerShell
-pip install -r requirements.txt
+conda install -c conda-forge matplotlib-base
 ```
+
+This significantly reduces disk usage.
 
 ## Command-line usage
 
@@ -52,8 +71,16 @@ This step reconstructs a full `LINcode` column and collapses heterogeneous PubML
 **chicken, ruminant, pig, wild bird, human, other**.
 
 ```bash
-python -m linwalker prep --input PATHSAFE_pubmlst_export.tsv.gz --outdir data/derived --prefix PATHSAFE
+python -m linwalker prep \
+  --input PATHSAFE_pubmlst_export.tsv.gz \
+  --outdir linwalker_run_v1_0_4/derived \
+  --prefix PATHSAFE
 ```
+
+This produces:
+- `PATHSAFE_LINwalker_min.tsv` (LIN + metadata only)
+- `PATHSAFE_metadata_only.tsv`
+- `PATHSAFE_cgMLST_matrix.tsv.gz` (optional downstream use)
 
 To preserve raw sources without binning:
 
@@ -61,31 +88,114 @@ To preserve raw sources without binning:
 python -m linwalker prep --input PATHSAFE_pubmlst_export.tsv.gz --outdir data/derived --prefix PATHSAFE --no-bin-sources
 ```
 
-### 2) Diversification plot
+### 2) Diversification analysis
 
 ```bash
-python -m linwalker diversify --input data/derived/PATHSAFE_LINwalker_min.tsv --lin-col LINcode --group-col source --outdir results/diversification
+python -m linwalker diversify \
+  --input linwalker_run_v1_0_4/derived/PATHSAFE_LINwalker_min.tsv \
+  --outdir linwalker_run_v1_0_4/results_diversification
 ```
 
-### 3) Introgression summaries
+Outputs two versions by default:
+- `diversification.png` / `.svg` Reservoir sources only (default ecological view)
+- `diversification_all_sources.png` / `.svg` Includes human + other (complete epidemiological view)
+
+### 3) Introgression analyses
 
 ```bash
-python -m linwalker introgress --input data/derived/PATHSAFE_LINwalker_min.tsv --lin-col LINcode --species-col species --outdir results/introgression
+python -m linwalker introgress \
+  --input linwalker_run_v1_0_4/derived/PATHSAFE_LINwalker_min.tsv \
+  --outdir linwalker_run_v1_0_4/results_introgression
 ```
 
-## Python usage (API)
+Outputs:
+- `mixed_species.png` / `.svg` Proportion of mixed-species LIN clusters vs LIN threshold (1–17)
+- `lsdd_by_source.png / .svg` Distribution of LIN Species Discordance Depth by source
 
-```python
-from linwalker.prep import prepare_pubmlst_export
-from linwalker.diversification import lin_diversification
-from linwalker.introgression import mixed_species_summary, lsdd
-
-lin_df, meta_df, cg_df = prepare_pubmlst_export("PATHSAFE_pubmlst_export.tsv.gz")
-
-div = lin_diversification(lin_df, lin_col="LINcode", group_col="source")
-mix = mixed_species_summary(lin_df, lin_col="LINcode", species_col="species")
-lin_df_lsdd = lsdd(lin_df, lin_col="LINcode", species_col="species")
+## LIN <> MLST ST / clonal complex concordance
+```bash
+python -m linwalker stcc \
+  --input linwalker_run_v1_0_4/derived/PATHSAFE_metadata_only.tsv \
+  --outdir linwalker_run_v1_0_4/results_stcc
 ```
+
+Outputs:
+- `stcc_concordance.png` / `.svg` Proportion of pure ST/CC LIN clusters and weighted purity vs LIN threshold
+
+This provides a direct mapping between cgMLST-derived LIN structure and legacy MLST nomenclature.
+
+## Notes on interpretation (*Campylobacter*)
+- LIN thresholds are strictly 1–17
+- LIN codes are treated as cumulative prefixes, not independent columns
+- Human isolates often dominate diversity curves and are therefore separated by default
+- LSDD provides a scale-aware measure of species boundary erosion
+- ST/CC concordance identifies LIN thresholds that approximate legacy typing units
+
+### Interpreting LIN-based introgression metrics (LSDD)
+
+LIN codes describe genetic relatedness at multiple nested scales, from very coarse (early LIN levels) to very fine (later LIN levels). This makes them useful not just for clustering isolates, but for asking where in the genetic hierarchy different biological signals appear.
+
+#### *What is LSDD?*
+
+LSDD (LIN Species Discordance Depth) is a per-isolate measure of how deep into the LIN hierarchy you have to go before species labels become inconsistent.
+
+In practice, for each isolate:
+1. LINwalker considers the isolate’s LIN clusters at each threshold (LIN 1 → LIN 17).
+2. At each threshold, it asks:
+    - *“What is the majority species among all isolates sharing this LIN prefix?”*
+3. LSDD is defined as the earliest LIN level at which the isolate’s assigned species differs from the majority species of its LIN cluster.
+
+If no discordance is observed at any level (LIN 1–17), the isolate is assigned the maximum value.
+
+#### *How to interpret LSDD values*
+
+LSDD is scale-aware by construction. Its biological interpretation depends on where discordance appears.
+
+*Low LSDD values (early LIN levels)*
+- Species discordance appears at coarse genetic scales
+- Indicates deep or widespread mixing between species
+- Suggests erosion of species boundaries that extends across broad lineages
+
+In Campylobacter, this may reflect:
+- long-term introgression
+- shared ancestral structure
+- extensive recombination across species boundaries
+
+*High LSDD values (late LIN levels)*
+- Species discordance only appears at fine genetic scales
+- Most of the lineage structure remains species-consistent
+- Mixing is localized or recent
+
+This pattern is consistent with:
+- occasional recombination events
+- rare hybrid lineages
+- spillover without sustained transmission
+
+*Maximum LSDD (no discordance)*
+- Species identity is consistent across all LIN levels
+- No evidence of detectable interspecies mixing within the LIN hierarchy
+
+#### *Why LSDD is useful*
+
+Traditional approaches often treat introgression as a binary property (mixed vs not mixed). LSDD instead asks:
+    *At what evolutionary scale does species mixing become visible?*
+
+This allows you to distinguish between:
+- deep, lineage-wide species boundary erosion
+- versus shallow, fine-scale recombination events
+
+Because LSDD is calculated per isolate, it can also be:
+- summarised by source or host
+- compared across datasets
+- linked to other metadata (e.g. ecology, geography, clinical status)
+
+#### *Important caveats*
+- LSDD does not identify specific recombination tracts or donor lineages.
+- It should be interpreted as a population-structural signal, not direct mechanistic evidence.
+- Values depend on the resolution and composition of the reference dataset.
+
+LSDD is therefore best used as:
+- a comparative, scale-aware summary of species boundary stability within a dataset.
 
 ## Source-attribution colour scheme
 
@@ -100,6 +210,4 @@ Colours are hard-coded for consistency across figures:
 
 See `linwalker/palette.py`.
 
-## License
-
-MIT
+## Please cite Parfitt et al., (*In preparation*)
