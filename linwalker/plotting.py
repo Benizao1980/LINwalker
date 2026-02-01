@@ -1,158 +1,210 @@
-# linwalker/plotting.py
+"""Plotting utilities.
+
+Design goals:
+- deterministic axes (LIN thresholds are integer levels)
+- deterministic source ordering/colours
+- light dependency footprint (matplotlib only)
+
+All plotting functions save both PNG and SVG by default.
+"""
 
 from __future__ import annotations
+
+from pathlib import Path
+from typing import Iterable, List, Optional
+
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
+
 from .palette import SOURCE_COLOURS
 
-# Stable ordering for attribution-style plots
-SOURCE_ORDER = ["chicken", "pig", "ruminant", "wild bird", "human", "other"]
+# Stable ordering (and a sane ecological default)
+SOURCE_ORDER = ["chicken", "ruminant", "pig", "wild bird", "human", "other"]
 
 
-def _sorted_sources(sources):
+def _sorted_sources(sources: Iterable[str]) -> List[str]:
     srcs = [str(s).lower() for s in sources]
     order = {k: i for i, k in enumerate(SOURCE_ORDER)}
-    return sorted(srcs, key=lambda x: order.get(x, 999))
+    return sorted(set(srcs), key=lambda s: order.get(s, 999))
 
 
-def plot_diversification(
-    div_df: pd.DataFrame,
-    title: str | None = None,
-    outpath: str | None = None,
-    exclude_sources: set[str] | None = None,
+def _ensure_outdir(outdir: str | Path) -> Path:
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    return outdir
+
+
+def _configure_axis(ax, max_level: int, title: Optional[str], ylabel: str):
+    ax.set_xlabel("LIN threshold")
+    ax.set_ylabel(ylabel)
+    if title:
+        ax.set_title(title)
+
+    # LIN thresholds are discrete 1..max_level
+    ax.set_xlim(1, max_level)
+    ax.set_xticks(list(range(1, max_level + 1)))
+    ax.grid(True, alpha=0.25)
+
+
+def _save(fig, outbase: Path, formats: Iterable[str] = ("png", "svg")):
+    for fmt in formats:
+        fmt = fmt.lower().lstrip(".")
+        fig.savefig(outbase.with_suffix(f".{fmt}"), bbox_inches="tight", dpi=300)
+
+
+def save_figure(fig, outbase: Path, formats: Iterable[str] = ("png", "svg")):
+    """Public wrapper used by optional modules (e.g. outbreak)."""
+    _save(fig, outbase, formats=formats)
+
+
+def plot_diversification_curve(
+    df: pd.DataFrame,
+    outdir: str | Path,
+    title: str = "Diversification by LIN threshold",
+    max_level: Optional[int] = None,
+    formats: Iterable[str] = ("png", "svg"),
+    filename: str = "diversification",
 ):
-    """
-    Publication-style diversification figure (unique LIN IDs vs threshold by source).
+    """Line plot of unique clusters vs LIN threshold, stratified by source."""
 
-    Note
-    ----
-    Human/other often dominate counts and can compress reservoir curves.
-    By default we exclude {"human","other"} unless override provided.
-    """
-    if exclude_sources is None:
-        exclude_sources = {"human", "other"}
+    outdir = _ensure_outdir(outdir)
+    d = df.copy()
+    d["threshold"] = pd.to_numeric(d["threshold"], errors="coerce").astype("Int64")
+    d = d.dropna(subset=["threshold"])
 
-    fig = plt.figure(figsize=(10, 7))
-    for src in _sorted_sources(div_df["group"].unique()):
-        if src in exclude_sources:
-            continue
-        sub = div_df[div_df["group"].astype(str).str.lower() == src]
+    if max_level is None:
+        max_level = int(d["threshold"].max())
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    for src in _sorted_sources(d["source"].unique()):
+        sub = d[d["source"].str.lower() == src].sort_values("threshold")
         if sub.empty:
             continue
-        plt.plot(
-            sub["LIN_level"].astype(int),
-            sub["n_unique_LINs"],
-            label=src,
-            color=SOURCE_COLOURS.get(src, "#000000"),
-            linewidth=3.2,
-        )
+        colour = SOURCE_COLOURS.get(src, "#777777")
+        ax.plot(sub["threshold"].to_numpy(), sub["n_unique"].to_numpy(), label=src, linewidth=2)
 
-    plt.xlabel("LIN threshold (1–17)")
-    plt.ylabel("Number of unique LIN IDs")
-    if title:
-        plt.title(title)
-    plt.legend(title="Source", frameon=True)
-    plt.grid(True, linestyle="--", alpha=0.35)
+    _configure_axis(ax, max_level=max_level, title=title, ylabel="Unique LIN clusters")
+    ax.legend(frameon=False, ncol=3)
 
-    # clean ticks: show every 2 levels
-    plt.xticks(list(range(1, 18, 2)))
-    plt.tight_layout()
-    if outpath:
-        plt.savefig(outpath, dpi=300)
-    return fig
+    _save(fig, outdir / filename, formats=formats)
+    plt.close(fig)
 
 
-def plot_mixed_species(mix_df: pd.DataFrame, title: str | None = None, outpath: str | None = None):
-    """
-    Publication-style introgression curve: proportion of mixed-species LIN clusters vs threshold.
-    """
-    fig = plt.figure(figsize=(10, 7))
-    plt.plot(mix_df["LIN_level"].astype(int), mix_df["prop_mixed_species"], linewidth=3.2)
-    plt.xlabel("LIN threshold (1–17)")
-    plt.ylabel("Proportion of mixed-species LIN clusters")
-    if title:
-        plt.title(title)
-    plt.grid(True, linestyle="--", alpha=0.35)
-    plt.xticks(list(range(1, 18, 2)))
-    plt.ylim(0, min(1.0, max(0.05, float(mix_df["prop_mixed_species"].max()) * 1.05)))
-    plt.tight_layout()
-    if outpath:
-        plt.savefig(outpath, dpi=300)
-    return fig
+def plot_mixed_species(
+    df: pd.DataFrame,
+    outdir: str | Path,
+    title: str = "Mixed-species LIN clusters by threshold",
+    max_level: Optional[int] = None,
+    formats: Iterable[str] = ("png", "svg"),
+    filename: str = "mixed_species",
+):
+    """Proportion of LIN clusters that contain >1 species, by LIN threshold."""
+
+    outdir = _ensure_outdir(outdir)
+    d = df.copy()
+    d["threshold"] = pd.to_numeric(d["threshold"], errors="coerce").astype("Int64")
+    d = d.dropna(subset=["threshold"])
+
+    if max_level is None:
+        max_level = int(d["threshold"].max())
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(d["threshold"].to_numpy(), d["prop_mixed"].to_numpy(), linewidth=2)
+
+    _configure_axis(ax, max_level=max_level, title=title, ylabel="Proportion mixed-species")
+    ax.set_ylim(0, 1)
+
+    _save(fig, outdir / filename, formats=formats)
+    plt.close(fig)
 
 
-def plot_lsdd_by_source(df_lsdd: pd.DataFrame, source_col: str = "source", title: str | None = None, outpath: str | None = None):
-    """
-    Boxplot of LSDD stratified by source, coloured using SOURCE_COLOURS.
-    """
-    fig = plt.figure(figsize=(10, 7))
-    df = df_lsdd.copy()
-    df[source_col] = df[source_col].astype(str).str.lower()
+def plot_lsdd_by_source(
+    df: pd.DataFrame,
+    outdir: str | Path,
+    title: str = "LSDD by source",
+    max_level: int = 17,
+    formats: Iterable[str] = ("png", "svg"),
+    filename: str = "lsdd_by_source",
+    show_points: bool = True,
+):
+    """Boxplot of LSDD distributions by source, with optional jittered points."""
 
-    sources = _sorted_sources(df[source_col].unique())
-    data = [pd.to_numeric(df.loc[df[source_col] == s, "LSDD"], errors="coerce").dropna().values for s in sources]
+    outdir = _ensure_outdir(outdir)
 
-    bp = plt.boxplot(data, labels=sources, vert=True, showfliers=False, patch_artist=True)
+    d = df.copy()
+    d["source"] = d["source"].astype(str).str.lower()
+    d["lsdd"] = pd.to_numeric(d["lsdd"], errors="coerce")
+    d = d.dropna(subset=["lsdd"])
 
+    sources = _sorted_sources(d["source"].unique())
+    data = [d.loc[d["source"] == s, "lsdd"].to_numpy() for s in sources]
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    bp = ax.boxplot(
+        data,
+        labels=sources,
+        showfliers=False,
+        patch_artist=True,
+        widths=0.65,
+    )
+
+    # colour boxes by source
     for patch, s in zip(bp["boxes"], sources):
-        patch.set_facecolor(SOURCE_COLOURS.get(s, "#CCCCCC"))
-        patch.set_edgecolor("#000000")
-        patch.set_linewidth(1.4)
+        patch.set_facecolor(SOURCE_COLOURS.get(s, "#DDDDDD"))
+        patch.set_alpha(0.6)
 
-    for element in ["whiskers", "caps", "medians"]:
-        for line in bp[element]:
-            line.set_color("#000000")
-            line.set_linewidth(1.4)
+    if show_points:
+        for i, s in enumerate(sources, start=1):
+            y = d.loc[d["source"] == s, "lsdd"].to_numpy()
+            if len(y) == 0:
+                continue
+            x = np.random.normal(i, 0.06, size=len(y))
+            ax.scatter(x, y, s=8, alpha=0.35, linewidths=0)
 
-    plt.ylabel("LSDD (earliest discordant LIN level)")
+    ax.set_ylabel("LSDD (earliest discordant LIN level)")
+    ax.set_ylim(0.5, max_level + 0.5)
+    ax.set_yticks(list(range(1, max_level + 1)))
     if title:
-        plt.title(title)
-    plt.grid(True, linestyle="--", alpha=0.35, axis="y")
-    plt.xticks(rotation=20, ha="right")
-    plt.tight_layout()
-    if outpath:
-        plt.savefig(outpath, dpi=300)
-    return fig
+        ax.set_title(title)
+    ax.grid(True, axis="y", alpha=0.25)
+
+    _save(fig, outdir / filename, formats=formats)
+    plt.close(fig)
 
 
+def plot_stcc_concordance(
+    df: pd.DataFrame,
+    outdir: str | Path,
+    title: str = "LIN ↔ MLST concordance by threshold",
+    max_level: Optional[int] = None,
+    formats: Iterable[str] = ("png", "svg"),
+    filename: str = "stcc_concordance",
+):
+    """Plot ST/CC purity metrics vs LIN threshold."""
 
-def plot_stcc_concordance(stcc_df: pd.DataFrame, title: str | None = None, outpath: str | None = None):
-    """
-    Plot LIN threshold vs concordance metrics for MLST ST and clonal complex.
-    Shows proportion of pure clusters and weighted purity for both ST and CC.
-    """
-    fig = plt.figure(figsize=(10, 7))
+    outdir = _ensure_outdir(outdir)
+    d = df.copy()
+    d["threshold"] = pd.to_numeric(d["threshold"], errors="coerce").astype("Int64")
+    d = d.dropna(subset=["threshold"])
 
-    x = stcc_df["LIN_level"].astype(int)
+    if max_level is None:
+        max_level = int(d["threshold"].max())
 
-    # Proportion pure
-    plt.plot(x, stcc_df["prop_pure_ST"], label="ST purity (prop pure)", linewidth=3.2)
-    plt.plot(x, stcc_df["prop_pure_CC"], label="CC purity (prop pure)", linewidth=3.2, linestyle="--")
+    fig, ax = plt.subplots(figsize=(10, 4))
 
-    # Weighted purity (secondary axis)
-    ax1 = plt.gca()
-    ax2 = ax1.twinx()
-    ax2.plot(x, stcc_df["weighted_purity_ST"], label="ST purity (weighted)", linewidth=3.2, alpha=0.85)
-    ax2.plot(x, stcc_df["weighted_purity_CC"], label="CC purity (weighted)", linewidth=3.2, alpha=0.85, linestyle="--")
+    for col, label in [
+        ("prop_pure_st", "Pure-ST clusters"),
+        ("weighted_purity_st", "Weighted ST purity"),
+        ("prop_pure_cc", "Pure-CC clusters"),
+        ("weighted_purity_cc", "Weighted CC purity"),
+    ]:
+        if col in d.columns:
+            ax.plot(d["threshold"].to_numpy(), d[col].to_numpy(), label=label, linewidth=2)
 
-    ax1.set_xlabel("LIN threshold (1–17)")
-    ax1.set_ylabel("Proportion of pure clusters")
-    ax2.set_ylabel("Weighted purity (max fraction within cluster)")
+    _configure_axis(ax, max_level=max_level, title=title, ylabel="Concordance")
+    ax.set_ylim(0, 1)
+    ax.legend(frameon=False, ncol=2)
 
-    if title:
-        plt.title(title)
-
-    ax1.grid(True, linestyle="--", alpha=0.35)
-    ax1.set_xticks(list(range(1, 18, 2)))
-    ax1.set_ylim(0, 1.0)
-    ax2.set_ylim(0, 1.0)
-
-    # Combined legend
-    lines1, labels1 = ax1.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines1 + lines2, labels1 + labels2, frameon=True, loc="lower right")
-
-    plt.tight_layout()
-    if outpath:
-        plt.savefig(outpath, dpi=300)
-    return fig
+    _save(fig, outdir / filename, formats=formats)
+    plt.close(fig)

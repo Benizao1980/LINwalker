@@ -1,12 +1,71 @@
-# linwalker/stcc.py
+"""LIN <> MLST concordance.
+
+At each LIN threshold *k*, we form LIN clusters using the LIN prefix of length *k*.
+We then compare those clusters to MLST sequence type (ST) and clonal complex (CC).
+
+Outputs (per threshold):
+- purity_ST / purity_CC: proportion of LIN clusters that are *pure* (single ST/CC)
+- weighted_purity_ST / weighted_purity_CC: purity weighted by cluster sizes
+- ARI_ST / ARI_CC: Adjusted Rand Index comparing LIN clusters to ST/CC labels
+
+Notes
+-----
+* Purity answers: "are LIN clusters internally consistent?"
+* ARI answers: "do LIN clusters reproduce the same partition as ST/CC?" (up to relabelling)
+
+This is a descriptive mapping, not a claim that one scheme is "correct".
+"""
 
 from __future__ import annotations
+
+from typing import Iterable, List, Optional, Tuple
+
+import numpy as np
 import pandas as pd
+from sklearn.metrics import adjusted_rand_score
+
+from .utils import infer_max_level_from_lincode, parse_thresholds
 
 
-def _lin_prefix(series: pd.Series, k: int) -> pd.Series:
-    parts = series.astype(str).str.split("_")
-    return parts.apply(lambda x: "_".join(x[:k]))
+def lin_prefix(code: str, k: int) -> str:
+    parts = str(code).split("_")
+    return "_".join(parts[:k])
+
+
+def _resolve_column(df: pd.DataFrame, preferred: str, alternatives: List[str]) -> str:
+    """Return the first matching column name.
+
+    We accept common PubMLST naming variants because exports differ.
+    """
+    if preferred in df.columns:
+        return preferred
+    for alt in alternatives:
+        if alt in df.columns:
+            return alt
+    # also try a case-insensitive match
+    lower = {c.lower(): c for c in df.columns}
+    if preferred.lower() in lower:
+        return lower[preferred.lower()]
+    for alt in alternatives:
+        if alt.lower() in lower:
+            return lower[alt.lower()]
+    raise ValueError(
+        f"Missing required column: {preferred}. Available columns: {', '.join(df.columns)}"
+    )
+
+
+def _cluster_purity(labels: pd.Series) -> float:
+    # labels: one column within a cluster
+    vals = labels.dropna().astype(str)
+    if len(vals) == 0:
+        return 0.0
+    return 1.0 if vals.nunique() == 1 else 0.0
+
+
+def _weighted_purity(cluster_sizes: np.ndarray, purities: np.ndarray) -> float:
+    if cluster_sizes.sum() == 0:
+        return 0.0
+    return float((cluster_sizes * purities).sum() / cluster_sizes.sum())
 
 
 def stcc_concordance_by_threshold(
@@ -14,103 +73,80 @@ def stcc_concordance_by_threshold(
     lin_col: str = "LINcode",
     st_col: str = "ST (MLST)",
     cc_col: str = "clonal_complex (MLST)",
-    k_min: int = 1,
-    k_max: int = 17,
-    min_cluster_size: int = 2,
+    thresholds: Optional[Iterable[int]] = None,
+    min_cluster_size: int = 1,
 ) -> pd.DataFrame:
-    """
-    Summarise concordance between LIN clusters and MLST ST / clonal complex across LIN thresholds.
+    """Compute LIN<>ST/CC concordance summaries across thresholds."""
 
-    For each LIN level k:
-      - form LIN clusters by k-prefix
-      - compute per-cluster purity for ST and CC (max category proportion)
-      - summarise (unweighted and weighted) plus proportions of "pure" clusters
+    if lin_col not in df.columns:
+        raise ValueError(f"Missing required LIN column: {lin_col}")
 
-    Parameters
-    ----------
-    min_cluster_size : int
-        Exclude clusters smaller than this size from summaries (default 2).
+    # Be permissive about ST/CC column names (common PubMLST exports)
+    st_col = _resolve_column(df, st_col, ["ST", "mlst_st", "MLST_ST", "ST (MLST)"])
+    cc_col = _resolve_column(
+        df,
+        cc_col,
+        ["clonal_complex", "CC", "mlst_cc", "clonal_complex (MLST)", "CC (MLST)"],
+    )
 
-    Returns
-    -------
-    DataFrame with one row per LIN_level and columns:
-      - n_clusters
-      - n_isolates_included
-      - prop_pure_ST, prop_pure_CC
-      - mean_purity_ST, mean_purity_CC
-      - weighted_purity_ST, weighted_purity_CC
-      - median_n_ST_per_cluster, median_n_CC_per_cluster
-    """
-    d = df.copy()
-    for col in [lin_col, st_col, cc_col]:
-        if col not in d.columns:
-            raise ValueError(f"Missing required column: {col}")
+    max_level = infer_max_level_from_lincode(df[lin_col])
+    ks = parse_thresholds(thresholds, max_level=max_level)
 
-    d[st_col] = d[st_col].astype(str).str.strip()
-    d[cc_col] = d[cc_col].astype(str).str.strip()
+    # Pre-coerce to strings (stable ARI behaviour)
+    st_labels = df[st_col].astype(str).fillna("NA")
+    cc_labels = df[cc_col].astype(str).fillna("NA")
 
-    out_rows = []
-    for k in range(k_min, k_max + 1):
-        d["_lin_k"] = _lin_prefix(d[lin_col], k)
-        g = d.groupby("_lin_k", dropna=False)
+    rows = []
+    for k in ks:
+        clusters = df[lin_col].astype(str).apply(lambda s: lin_prefix(s, k))
 
-        # cluster sizes
-        sizes = g.size().rename("cluster_size").reset_index()
+        tmp = df[[lin_col]].copy()
+        tmp["cluster"] = clusters
+        tmp["ST"] = st_labels
+        tmp["CC"] = cc_labels
 
-        # per-cluster ST stats
-        st_n = g[st_col].nunique().rename("n_ST")
-        cc_n = g[cc_col].nunique().rename("n_CC")
+        # Filter very small clusters if requested
+        if min_cluster_size > 1:
+            sizes = tmp["cluster"].value_counts()
+            keep = sizes[sizes >= min_cluster_size].index
+            tmp = tmp[tmp["cluster"].isin(keep)].copy()
 
-        # purity = max frequency / size (ignore missing-like noticing: treat "nan" as category)
-        st_purity = g[st_col].apply(lambda s: s.value_counts(dropna=False).iloc[0] / len(s)).rename("purity_ST")
-        cc_purity = g[cc_col].apply(lambda s: s.value_counts(dropna=False).iloc[0] / len(s)).rename("purity_CC")
-
-        per = pd.concat([st_n, cc_n, st_purity, cc_purity], axis=1).reset_index().merge(sizes, on="_lin_k")
-
-        # filter small clusters
-        per_f = per[per["cluster_size"] >= min_cluster_size].copy()
-        if per_f.empty:
-            out_rows.append({
-                "LIN_level": k,
-                "n_clusters": 0,
-                "n_isolates_included": 0,
-                "prop_pure_ST": 0.0,
-                "prop_pure_CC": 0.0,
-                "mean_purity_ST": 0.0,
-                "mean_purity_CC": 0.0,
-                "weighted_purity_ST": 0.0,
-                "weighted_purity_CC": 0.0,
-                "median_n_ST_per_cluster": 0.0,
-                "median_n_CC_per_cluster": 0.0,
-                "min_cluster_size": min_cluster_size,
-            })
+        if tmp.empty:
+            rows.append(
+                {
+                    "threshold": k,
+                    "n_clusters": 0,
+                    "purity_ST": 0.0,
+                    "purity_CC": 0.0,
+                    "weighted_purity_ST": 0.0,
+                    "weighted_purity_CC": 0.0,
+                    "ARI_ST": np.nan,
+                    "ARI_CC": np.nan,
+                }
+            )
             continue
 
-        n_clusters = int(per_f.shape[0])
-        n_iso = int(per_f["cluster_size"].sum())
+        grouped = tmp.groupby("cluster", sort=False)
+        cluster_sizes = grouped.size().to_numpy()
 
-        prop_pure_ST = float((per_f["n_ST"] == 1).mean())
-        prop_pure_CC = float((per_f["n_CC"] == 1).mean())
+        purity_st = grouped["ST"].apply(_cluster_purity).to_numpy()
+        purity_cc = grouped["CC"].apply(_cluster_purity).to_numpy()
 
-        mean_purity_ST = float(per_f["purity_ST"].mean())
-        mean_purity_CC = float(per_f["purity_CC"].mean())
+        # ARI compares partitions of isolates, not cluster-internal stats.
+        ari_st = adjusted_rand_score(tmp["ST"], tmp["cluster"])
+        ari_cc = adjusted_rand_score(tmp["CC"], tmp["cluster"])
 
-        weighted_purity_ST = float((per_f["purity_ST"] * per_f["cluster_size"]).sum() / n_iso)
-        weighted_purity_CC = float((per_f["purity_CC"] * per_f["cluster_size"]).sum() / n_iso)
+        rows.append(
+            {
+                "threshold": k,
+                "n_clusters": int(grouped.ngroups),
+                "purity_ST": float(purity_st.mean()),
+                "purity_CC": float(purity_cc.mean()),
+                "weighted_purity_ST": _weighted_purity(cluster_sizes, purity_st),
+                "weighted_purity_CC": _weighted_purity(cluster_sizes, purity_cc),
+                "ARI_ST": float(ari_st),
+                "ARI_CC": float(ari_cc),
+            }
+        )
 
-        out_rows.append({
-            "LIN_level": k,
-            "n_clusters": n_clusters,
-            "n_isolates_included": n_iso,
-            "prop_pure_ST": prop_pure_ST,
-            "prop_pure_CC": prop_pure_CC,
-            "mean_purity_ST": mean_purity_ST,
-            "mean_purity_CC": mean_purity_CC,
-            "weighted_purity_ST": weighted_purity_ST,
-            "weighted_purity_CC": weighted_purity_CC,
-            "median_n_ST_per_cluster": float(per_f["n_ST"].median()),
-            "median_n_CC_per_cluster": float(per_f["n_CC"].median()),
-            "min_cluster_size": min_cluster_size,
-        })
-
-    return pd.DataFrame(out_rows)
+    return pd.DataFrame(rows)
