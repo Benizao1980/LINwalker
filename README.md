@@ -12,7 +12,7 @@ The package was developed and tested using Campylobacter jejuni / coli cgMLST da
 
 ## What it does
 
-LINwalker provides four core analyses:
+LINwalker provides five core analyses:
 
 1. **Diversification by scale**
 How the number of unique LIN clusters grows as LIN resolution increases (thresholds 1–17), stratified by source.
@@ -26,6 +26,11 @@ A per-isolate metric describing the earliest LIN level at which the isolate’s 
 4. **LIN <> MLST concordance**
 Quantifies how well LIN clusters correspond to MLST sequence types (ST) and clonal complexes (CC) across LIN thresholds.
 
+5. **Outbreak / public-health summaries**
+   Descriptive outputs to support outbreak-style exploration: per-isolate LIN cluster
+   size vs threshold (with optional boxplot+points), a table of the largest clusters
+   at a chosen LIN threshold, and optional epi-curve by collection date.
+   
 ## Getting started (clone → install → run)
 
 ```bash
@@ -45,7 +50,6 @@ conda install -c conda-forge \
   matplotlib \
   seaborn \
   scikit-learn
-pip install -e .
 ```
 
 ## Minimal plotting install (no Qt)
@@ -85,7 +89,11 @@ This produces:
 To preserve raw sources without binning:
 
 ```bash
-python -m linwalker prep --input PATHSAFE_pubmlst_export.tsv.gz --outdir data/derived --prefix PATHSAFE --no-bin-sources
+python -m linwalker prep \
+  --input PATHSAFE_pubmlst_export.tsv.gz \
+  --outdir linwalker_run_v1_0_4/derived \
+  --prefix PATHSAFE \
+  --no-bin-sources
 ```
 
 ### 2) Diversification analysis
@@ -112,17 +120,39 @@ Outputs:
 - `mixed_species.png` / `.svg` Proportion of mixed-species LIN clusters vs LIN threshold (1–17)
 - `lsdd_by_source.png / .svg` Distribution of LIN Species Discordance Depth by source
 
-## LIN <> MLST ST / clonal complex concordance
+### 4) LIN <> MLST ST / clonal complex concordance
+
 ```bash
 python -m linwalker stcc \
   --input linwalker_run_v1_0_4/derived/PATHSAFE_metadata_only.tsv \
   --outdir linwalker_run_v1_0_4/results_stcc
+
+```
+
+### 5) Outbreak / public-health summaries
+
+Produces descriptive plots (cluster sizes vs LIN threshold, boxplots+points) and
+tables of the largest LIN clusters at a chosen threshold. If you provide a date
+column, LINwalker can also output a basic epi-curve.
+
+```bash
+python -m linwalker outbreak \
+  --input linwalker_run_v1_0_4/derived/PATHSAFE_LINwalker_min.tsv \
+  --outdir linwalker_run_v1_0_4/results_outbreak \
+  --top-threshold 12 \
+  --top-n 25 \
+  --max-level 17 \
+  --formats png svg
 ```
 
 Outputs:
-- `stcc_concordance.png` / `.svg` Proportion of pure ST/CC LIN clusters and weighted purity vs LIN threshold
+- `cluster_size_summary.*` median/IQR per-isolate cluster size vs LIN threshold
+- `cluster_size_boxplot.*` boxplot + per-isolate jitter for cluster sizes
+- `cluster_levels_summary.tsv` summary statistics per LIN level
+- `top_clusters_t{threshold}.tsv` largest clusters at the chosen threshold
+- `epi_curve_*.*` if you provide a `--date-col`
 
-This provides a direct mapping between cgMLST-derived LIN structure and legacy MLST nomenclature.
+> Note: `stcc` expects columns named `ST (MLST)` and `clonal_complex (MLST)` if you feed it the `prep` output.
 
 ## Notes on interpretation (*Campylobacter*)
 - LIN thresholds are strictly 1–17
@@ -210,4 +240,5 @@ Colours are hard-coded for consistency across figures:
 
 See `linwalker/palette.py`.
 
-## Please cite Parfitt et al., (*In preparation*)
+## Citation
+Please cite Parfitt et al. (*In preparation*).
