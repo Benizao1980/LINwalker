@@ -1,0 +1,6 @@
+isolate	lin_code	source	species	country	date	ST	clonal_complex
+A	1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1	chicken	Campylobacter jejuni	UK	2025-01-01	21	21
+B	1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.2	chicken	Campylobacter jejuni	UK	2025-01-02	21	21
+C	1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.2.1	ruminant	Campylobacter jejuni	UK	2025-01-03	45	45
+D	1.1.1.1.1.1.1.1.1.1.1.1.1.1.2.1.1	ruminant	Campylobacter coli	FR	2025-01-04	828	828
+E	2.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1	wild bird	Campylobacter jejuni	FR	2025-01-05	353	353

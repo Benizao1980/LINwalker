@@ -1,210 +1,288 @@
-"""Plotting utilities.
-
-Design goals:
-- deterministic axes (LIN thresholds are integer levels)
-- deterministic source ordering/colours
-- light dependency footprint (matplotlib only)
-
-All plotting functions save both PNG and SVG by default.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Iterable, List, Optional
 
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 
-from .palette import SOURCE_COLOURS
-
-# Stable ordering (and a sane ecological default)
-SOURCE_ORDER = ["chicken", "ruminant", "pig", "wild bird", "human", "other"]
+from .palette import get_palette, RESERVOIR_SOURCES
 
 
-def _sorted_sources(sources: Iterable[str]) -> List[str]:
-    srcs = [str(s).lower() for s in sources]
-    order = {k: i for i, k in enumerate(SOURCE_ORDER)}
-    return sorted(set(srcs), key=lambda s: order.get(s, 999))
+def _resolve_outbase(
+    *,
+    outpath_base: Optional[Path] = None,
+    outdir: Optional[Path] = None,
+    filename: Optional[str] = None,
+) -> Path:
+    if outpath_base is not None:
+        return Path(outpath_base)
+    if outdir is None or filename is None:
+        raise ValueError("Provide either outpath_base or (outdir + filename)")
+    return Path(outdir) / filename
 
 
-def _ensure_outdir(outdir: str | Path) -> Path:
-    outdir = Path(outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
-    return outdir
-
-
-def _configure_axis(ax, max_level: int, title: Optional[str], ylabel: str):
-    ax.set_xlabel("LIN threshold")
-    ax.set_ylabel(ylabel)
-    if title:
-        ax.set_title(title)
-
-    # LIN thresholds are discrete 1..max_level
-    ax.set_xlim(1, max_level)
-    ax.set_xticks(list(range(1, max_level + 1)))
-    ax.grid(True, alpha=0.25)
-
-
-def _save(fig, outbase: Path, formats: Iterable[str] = ("png", "svg")):
+def _save_fig(fig: plt.Figure, outpath_base: Path, formats: Iterable[str], dpi: int = 300) -> None:
+    outpath_base = Path(outpath_base)
+    outpath_base.parent.mkdir(parents=True, exist_ok=True)
     for fmt in formats:
-        fmt = fmt.lower().lstrip(".")
-        fig.savefig(outbase.with_suffix(f".{fmt}"), bbox_inches="tight", dpi=300)
-
-
-def save_figure(fig, outbase: Path, formats: Iterable[str] = ("png", "svg")):
-    """Public wrapper used by optional modules (e.g. outbreak)."""
-    _save(fig, outbase, formats=formats)
+        fig.savefig(str(outpath_base.with_suffix(f".{fmt}")), dpi=dpi, bbox_inches="tight")
 
 
 def plot_diversification_curve(
-    df: pd.DataFrame,
-    outdir: str | Path,
-    title: str = "Diversification by LIN threshold",
-    max_level: Optional[int] = None,
-    formats: Iterable[str] = ("png", "svg"),
+    div_table: pd.DataFrame,
+    *,
+    outdir: Optional[Path] = None,
     filename: str = "diversification",
-):
-    """Line plot of unique clusters vs LIN threshold, stratified by source."""
+    outpath_base: Optional[Path] = None,
+    formats: Optional[List[str]] = None,
+    title: str = "Unique LIN IDs vs. LIN threshold by source",
+    max_level: Optional[int] = None,
+    include_sources: Optional[List[str]] = None,
+) -> None:
+    """Plot number of unique LIN prefixes vs LIN level, stratified by source."""
+    if formats is None:
+        formats = ["png", "svg"]
+    outbase = _resolve_outbase(outpath_base=outpath_base, outdir=outdir, filename=filename)
 
-    outdir = _ensure_outdir(outdir)
-    d = df.copy()
-    d["threshold"] = pd.to_numeric(d["threshold"], errors="coerce").astype("Int64")
-    d = d.dropna(subset=["threshold"])
+    df = div_table.copy()
+    if "lin_level" not in df.columns:
+        # Back-compat: accept "threshold" or "LIN_level"
+        if "threshold" in df.columns:
+            df = df.rename(columns={"threshold": "lin_level"})
+        elif "LIN_level" in df.columns:
+            df = df.rename(columns={"LIN_level": "lin_level"})
+    df["lin_level"] = pd.to_numeric(df["lin_level"], errors="coerce")
+    df = df.dropna(subset=["lin_level"])
 
     if max_level is None:
-        max_level = int(d["threshold"].max())
+        max_level = int(df["lin_level"].max()) if len(df) else 17
 
-    fig, ax = plt.subplots(figsize=(10, 4))
-    for src in _sorted_sources(d["source"].unique()):
-        sub = d[d["source"].str.lower() == src].sort_values("threshold")
-        if sub.empty:
-            continue
-        colour = SOURCE_COLOURS.get(src, "#777777")
-        ax.plot(sub["threshold"].to_numpy(), sub["n_unique"].to_numpy(), label=src, linewidth=2)
+    if include_sources is not None:
+        df = df[df["source"].isin(include_sources)].copy()
 
-    _configure_axis(ax, max_level=max_level, title=title, ylabel="Unique LIN clusters")
-    ax.legend(frameon=False, ncol=3)
+    palette = get_palette()
 
-    _save(fig, outdir / filename, formats=formats)
+    fig = plt.figure(figsize=(11, 7))
+    ax = fig.add_subplot(111)
+
+    for src, sub in df.groupby("source"):
+        sub = sub.sort_values("lin_level")
+        ax.plot(sub["lin_level"], sub["n_unique"], linewidth=3, label=src, color=palette.get(src, None))
+
+    ax.set_title(title)
+    ax.set_xlabel(f"LIN threshold (1–{max_level})")
+    ax.set_ylabel("Number of unique LIN IDs")
+    ax.set_xlim(1, max_level)
+    # Avoid "squashed" tick labels: show only a few major labels.
+    # User-requested majors: 1, 5, 10, 15.
+    major_ticks = [t for t in (1, 5, 10, 15) if 1 <= t <= max_level]
+    ax.set_xticks(major_ticks)
+    # Keep minor ticks at every level for vertical guide lines.
+    ax.set_xticks(list(range(1, max_level + 1)), minor=True)
+    ax.grid(True, which="major", linestyle="--", alpha=0.3)
+    ax.grid(True, which="minor", axis="x", linestyle="--", alpha=0.12)
+    for label in ax.get_xticklabels():
+        label.set_rotation(0)
+        label.set_horizontalalignment("center")
+
+    ax.legend(title="Source", frameon=True)
+
+    _save_fig(fig, outbase, formats=formats)
     plt.close(fig)
 
 
 def plot_mixed_species(
-    df: pd.DataFrame,
-    outdir: str | Path,
-    title: str = "Mixed-species LIN clusters by threshold",
-    max_level: Optional[int] = None,
-    formats: Iterable[str] = ("png", "svg"),
+    mixed_table: pd.DataFrame,
+    *,
+    outdir: Optional[Path] = None,
     filename: str = "mixed_species",
-):
-    """Proportion of LIN clusters that contain >1 species, by LIN threshold."""
+    outpath_base: Optional[Path] = None,
+    formats: Optional[List[str]] = None,
+    title: str = "Mixed-species LIN prefixes vs LIN threshold",
+    max_level: Optional[int] = None,
+) -> None:
+    if formats is None:
+        formats = ["png", "svg"]
+    outbase = _resolve_outbase(outpath_base=outpath_base, outdir=outdir, filename=filename)
 
-    outdir = _ensure_outdir(outdir)
-    d = df.copy()
-    d["threshold"] = pd.to_numeric(d["threshold"], errors="coerce").astype("Int64")
-    d = d.dropna(subset=["threshold"])
+    df = mixed_table.copy()
+    if "lin_level" not in df.columns and "threshold" in df.columns:
+        df = df.rename(columns={"threshold": "lin_level"})
+    df["lin_level"] = pd.to_numeric(df["lin_level"], errors="coerce")
+    df = df.dropna(subset=["lin_level"])
 
     if max_level is None:
-        max_level = int(d["threshold"].max())
+        max_level = int(df["lin_level"].max()) if len(df) else 17
 
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(d["threshold"].to_numpy(), d["prop_mixed"].to_numpy(), linewidth=2)
+    fig = plt.figure(figsize=(11, 7))
+    ax = fig.add_subplot(111)
 
-    _configure_axis(ax, max_level=max_level, title=title, ylabel="Proportion mixed-species")
-    ax.set_ylim(0, 1)
+    df = df.sort_values("lin_level")
+    ax.plot(df["lin_level"], df["mixed_fraction"], linewidth=3)
 
-    _save(fig, outdir / filename, formats=formats)
+    ax.set_title(title)
+    ax.set_xlabel(f"LIN threshold (1–{max_level})")
+    ax.set_ylabel("Fraction of prefixes shared by >1 species")
+    ax.set_xlim(1, max_level)
+    ax.set_xticks(list(range(1, max_level + 1)))
+    ax.grid(True, linestyle="--", alpha=0.3)
+
+    _save_fig(fig, outbase, formats=formats)
     plt.close(fig)
 
 
-def plot_lsdd_by_source(
-    df: pd.DataFrame,
-    outdir: str | Path,
-    title: str = "LSDD by source",
-    max_level: int = 17,
-    formats: Iterable[str] = ("png", "svg"),
-    filename: str = "lsdd_by_source",
-    show_points: bool = True,
-):
-    """Boxplot of LSDD distributions by source, with optional jittered points."""
+def plot_lsdd(
+    lsdd_table: pd.DataFrame,
+    *,
+    outdir: Optional[Path] = None,
+    filename: str = "lsdd",
+    outpath_base: Optional[Path] = None,
+    formats: Optional[List[str]] = None,
+    title: str = "LSDD (within vs between species) by LIN threshold",
+    max_level: Optional[int] = None,
+) -> None:
+    if formats is None:
+        formats = ["png", "svg"]
+    outbase = _resolve_outbase(outpath_base=outpath_base, outdir=outdir, filename=filename)
 
-    outdir = _ensure_outdir(outdir)
+    df = lsdd_table.copy()
+    if "lin_level" not in df.columns and "threshold" in df.columns:
+        df = df.rename(columns={"threshold": "lin_level"})
+    df["lin_level"] = pd.to_numeric(df["lin_level"], errors="coerce")
+    df = df.dropna(subset=["lin_level"])
 
-    d = df.copy()
-    d["source"] = d["source"].astype(str).str.lower()
-    d["lsdd"] = pd.to_numeric(d["lsdd"], errors="coerce")
-    d = d.dropna(subset=["lsdd"])
+    if max_level is None:
+        max_level = int(df["lin_level"].max()) if len(df) else 17
 
-    sources = _sorted_sources(d["source"].unique())
-    data = [d.loc[d["source"] == s, "lsdd"].to_numpy() for s in sources]
+    fig = plt.figure(figsize=(11, 7))
+    ax = fig.add_subplot(111)
 
-    fig, ax = plt.subplots(figsize=(10, 4))
-    bp = ax.boxplot(
-        data,
-        labels=sources,
-        showfliers=False,
-        patch_artist=True,
-        widths=0.65,
-    )
+    df = df.sort_values("lin_level")
+    ax.plot(df["lin_level"], df["lsdd"], linewidth=3)
 
-    # colour boxes by source
-    for patch, s in zip(bp["boxes"], sources):
-        patch.set_facecolor(SOURCE_COLOURS.get(s, "#DDDDDD"))
-        patch.set_alpha(0.6)
+    ax.set_title(title)
+    ax.set_xlabel(f"LIN threshold (1–{max_level})")
+    ax.set_ylabel("LSDD")
+    ax.set_xlim(1, max_level)
+    ax.set_xticks(list(range(1, max_level + 1)))
+    ax.grid(True, linestyle="--", alpha=0.3)
 
-    if show_points:
-        for i, s in enumerate(sources, start=1):
-            y = d.loc[d["source"] == s, "lsdd"].to_numpy()
-            if len(y) == 0:
-                continue
-            x = np.random.normal(i, 0.06, size=len(y))
-            ax.scatter(x, y, s=8, alpha=0.35, linewidths=0)
-
-    ax.set_ylabel("LSDD (earliest discordant LIN level)")
-    ax.set_ylim(0.5, max_level + 0.5)
-    ax.set_yticks(list(range(1, max_level + 1)))
-    if title:
-        ax.set_title(title)
-    ax.grid(True, axis="y", alpha=0.25)
-
-    _save(fig, outdir / filename, formats=formats)
+    _save_fig(fig, outbase, formats=formats)
     plt.close(fig)
 
 
 def plot_stcc_concordance(
-    df: pd.DataFrame,
-    outdir: str | Path,
-    title: str = "LIN ↔ MLST concordance by threshold",
-    max_level: Optional[int] = None,
-    formats: Iterable[str] = ("png", "svg"),
+    stcc_table: pd.DataFrame,
+    *,
+    outdir: Optional[Path] = None,
     filename: str = "stcc_concordance",
-):
-    """Plot ST/CC purity metrics vs LIN threshold."""
+    outpath_base: Optional[Path] = None,
+    formats: Optional[List[str]] = None,
+    title: str = "ST/CC concordance vs LIN threshold",
+    max_level: Optional[int] = None,
+) -> None:
+    if formats is None:
+        formats = ["png", "svg"]
+    outbase = _resolve_outbase(outpath_base=outpath_base, outdir=outdir, filename=filename)
 
-    outdir = _ensure_outdir(outdir)
-    d = df.copy()
-    d["threshold"] = pd.to_numeric(d["threshold"], errors="coerce").astype("Int64")
-    d = d.dropna(subset=["threshold"])
+    df = stcc_table.copy()
+    if "lin_level" not in df.columns and "threshold" in df.columns:
+        df = df.rename(columns={"threshold": "lin_level"})
+    df["lin_level"] = pd.to_numeric(df["lin_level"], errors="coerce")
+    df = df.dropna(subset=["lin_level"])
 
     if max_level is None:
-        max_level = int(d["threshold"].max())
+        max_level = int(df["lin_level"].max()) if len(df) else 17
 
-    fig, ax = plt.subplots(figsize=(10, 4))
+    fig = plt.figure(figsize=(11, 7))
+    ax = fig.add_subplot(111)
 
-    for col, label in [
-        ("prop_pure_st", "Pure-ST clusters"),
-        ("weighted_purity_st", "Weighted ST purity"),
-        ("prop_pure_cc", "Pure-CC clusters"),
-        ("weighted_purity_cc", "Weighted CC purity"),
-    ]:
-        if col in d.columns:
-            ax.plot(d["threshold"].to_numpy(), d[col].to_numpy(), label=label, linewidth=2)
+    df = df.sort_values("lin_level")
+    st_col = "st_purity" if "st_purity" in df.columns else "mean_purity_ST"
+    cc_col = "cc_purity" if "cc_purity" in df.columns else ("mean_purity_CC" if "mean_purity_CC" in df.columns else None)
 
-    _configure_axis(ax, max_level=max_level, title=title, ylabel="Concordance")
-    ax.set_ylim(0, 1)
-    ax.legend(frameon=False, ncol=2)
+    ax.plot(df["lin_level"], df[st_col], linewidth=3, label="ST purity")
+    if cc_col is not None:
+        ax.plot(df["lin_level"], df[cc_col], linewidth=3, label="CC purity")
 
-    _save(fig, outdir / filename, formats=formats)
+    ax.set_title(title)
+    ax.set_xlabel(f"LIN threshold (1–{max_level})")
+    ax.set_ylabel("Purity (1.0 = perfect concordance)")
+    ax.set_xlim(1, max_level)
+    ax.set_xticks(list(range(1, max_level + 1)))
+    ax.set_ylim(0, 1.05)
+    ax.grid(True, linestyle="--", alpha=0.3)
+    ax.legend(frameon=True)
+
+    _save_fig(fig, outbase, formats=formats)
+    plt.close(fig)
+
+
+def plot_outbreak_top_clusters(
+    top_clusters: pd.DataFrame,
+    *,
+    outdir: Optional[Path] = None,
+    filename: str = "top_clusters",
+    outpath_base: Optional[Path] = None,
+    formats: Optional[List[str]] = None,
+    title: str = "Top LIN clusters",
+) -> None:
+    if formats is None:
+        formats = ["png", "svg"]
+    outbase = _resolve_outbase(outpath_base=outpath_base, outdir=outdir, filename=filename)
+
+    df = top_clusters.copy()
+    if df.empty:
+        return
+
+    fig = plt.figure(figsize=(11, 7))
+    ax = fig.add_subplot(111)
+
+    df = df.sort_values("n", ascending=True)
+    col = "lin_prefix" if "lin_prefix" in df.columns else "lin_cluster"
+    ax.barh(df[col].astype(str), df["n"].astype(int))
+
+    ax.set_title(title)
+    ax.set_xlabel("Isolate count")
+    ax.set_ylabel("LIN prefix")
+    ax.grid(True, axis="x", linestyle="--", alpha=0.3)
+
+    _save_fig(fig, outbase, formats=formats)
+    plt.close(fig)
+
+
+def plot_outbreak_epicurve(
+    date_counts: pd.DataFrame,
+    *,
+    outdir: Optional[Path] = None,
+    filename: str = "epicurve",
+    outpath_base: Optional[Path] = None,
+    formats: Optional[List[str]] = None,
+    title: str = "Counts over time",
+) -> None:
+    if formats is None:
+        formats = ["png", "svg"]
+    outbase = _resolve_outbase(outpath_base=outpath_base, outdir=outdir, filename=filename)
+
+    df = date_counts.copy()
+    if df.empty or "date" not in df.columns:
+        return
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date"]).sort_values("date")
+
+    fig = plt.figure(figsize=(11, 7))
+    ax = fig.add_subplot(111)
+
+    ax.plot(df["date"], df["n"], linewidth=3)
+
+    ax.set_title(title)
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Isolate count")
+    ax.grid(True, linestyle="--", alpha=0.3)
+
+    _save_fig(fig, outbase, formats=formats)
     plt.close(fig)

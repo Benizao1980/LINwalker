@@ -1,345 +1,456 @@
-"""Command line interface for LINwalker."""
-
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
+from typing import List
 
 import pandas as pd
 
-from .prep import prepare_pubmlst_export
+from . import __version__
 from .diversification import lin_diversification
-from .introgression import mixed_species_summary, lsdd
-from .stcc import stcc_concordance_by_threshold
-from .plotting import plot_diversification_curve, plot_mixed_species, plot_lsdd_by_source, plot_stcc_concordance
-from .tree_export import export_microreact_tsv, export_itol_colourstrip
-from .utils import infer_max_level_from_lincode, parse_thresholds
-from .outbreak import (
-    per_isolate_cluster_sizes,
-    summarise_levels,
-    top_clusters_table,
-    epi_curve,
-    plot_cluster_size_summary,
-    plot_cluster_size_boxplot,
+from .introgression import mixed_species_fraction, lsdd_by_level
+from .stcc import stcc_concordance
+from .outbreak import outbreak_descriptives
+from .tree_export import export_tree_metadata
+from .prep import prep_pubmlst_export
+from .utils import resolve_column
+from .plotting import (
+    plot_diversification_curve,
+    plot_mixed_species,
+    plot_lsdd,
+    plot_stcc_concordance,
+    plot_outbreak_top_clusters,
+    plot_outbreak_epicurve,
 )
 
 
-def cmd_prep(args):
-    outdir = Path(args.outdir)
+def _ensure_outdirs(outdir: Path):
+    """Create a stable output structure under *outdir*.
+
+    We keep outputs in predictable locations so downstream workflows (and CI)
+    can check expected artifacts.
+    """
     outdir.mkdir(parents=True, exist_ok=True)
 
-    lin_df, meta_df, cg_df = prepare_pubmlst_export(
-        args.input,
-        outdir=outdir,
+    plots = outdir / "plots"
+    tables = outdir / "tables"
+    logs = outdir / "logs"
+    derived = outdir / "derived"
+
+    for p in (plots, tables, logs, derived):
+        p.mkdir(parents=True, exist_ok=True)
+
+    return plots, tables, logs, derived
+
+
+def _setup_logging(logfile: Path, *, verbose: bool = False) -> None:
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+        handlers=[logging.FileHandler(logfile), logging.StreamHandler()],
+    )
+
+
+def _read_tsv(path: str) -> pd.DataFrame:
+    return pd.read_csv(path, sep="\t", low_memory=False)
+
+
+def cmd_prep(args: argparse.Namespace) -> None:
+    outdir = Path(args.outdir)
+    plots, tables, logs, derived = _ensure_outdirs(outdir)
+    _setup_logging(logs / "prep.log", verbose=getattr(args, "verbose", False))
+    logging.info(f"LINwalker v{__version__} | prep")
+
+    # Prep outputs are analysis-ready derived tables.
+    # Keep them in outdir/derived so downstream commands can refer to them.
+    _ = prep_pubmlst_export(
+        Path(args.input),
+        outdir=derived,
         prefix=args.prefix,
+        bin_sources=not args.no_bin_sources,
+        lin_col=args.lin_col,
         source_col=args.source_col,
         species_col=args.species_col,
-        bin_sources=not args.no_bin_sources,
+        sample_col=args.sample_col,
+        st_col=args.st_col,
+        cc_col=args.cc_col,
+        country_col=args.country_col,
+        date_col=args.date_col,
+        keep_cgmlst_matrix=args.keep_cgmlst_matrix,
     )
 
-    # already written by prepare_pubmlst_export; return is mainly for API use
-    print(f"[LINwalker] Wrote derived tables to: {outdir}")
+    logging.info(f"Wrote prep outputs to: {derived}")
 
 
-def cmd_diversify(args):
-    df = pd.read_csv(args.input, sep="\t", low_memory=False)
-    inferred = infer_max_level_from_lincode(df[args.lin_col])
-    max_level = min(int(args.max_level), int(inferred))
-    thresholds = parse_thresholds(args.thresholds, max_level=max_level)
-
+def cmd_diversify(args: argparse.Namespace) -> None:
     outdir = Path(args.outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
+    plots, tables, logs, _derived = _ensure_outdirs(outdir)
+    _setup_logging(logs / "diversify.log", verbose=args.verbose)
 
-    div = lin_diversification(df, lin_col=args.lin_col, group_col=args.group_col, thresholds=thresholds, max_level=max_level)
-    div.to_csv(outdir / "diversification.tsv", sep="\t", index=False)
+    df = pd.read_csv(args.input, sep="\t", low_memory=False)
 
-    formats = args.formats
+    args.lin_col = resolve_column(
+        df,
+        args.lin_col,
+        ["lin_code", "LINcode", "LIN_code", "LIN", "lincode", "lin"],
+    )
+    if args.lin_col is None:
+        raise ValueError(
+            "Could not find a LIN column. Use --lin-col or ensure one of these exists: "
+            "lin_code, LINcode, LIN_code, LIN, lincode, lin"
+        )
+    args.lin_col = resolve_column(
+        df,
+        args.lin_col,
+        ["lin_code", "LINcode", "LIN_code", "LIN", "lincode", "lin"],
+    )
+    if args.lin_col is None:
+        raise ValueError(
+            "Missing LIN column. Tried --lin-col and common candidates (lin_code, LINcode, LIN_code, LIN, lincode, lin)."
+        )
+    args.lin_col = resolve_column(
+        df,
+        args.lin_col,
+        ["lin_code", "LINcode", "LIN_code", "LIN", "lincode", "lin"],
+    )
+    if args.lin_col is None:
+        raise ValueError(
+            "Could not find a LIN code column. Use --lin-col to specify it. "
+            f"Columns detected: {list(df.columns)}"
+        )
 
-    # Reservoir-only plot (default ecological view)
-    reservoir_sources = ["chicken", "ruminant", "pig", "wild bird"]
-    div_res = div[div["source"].isin(reservoir_sources)]
+    # Handle common PubMLST column naming variants (and older LINwalker outputs)
+    args.lin_col = resolve_column(df, args.lin_col, [
+        "lin_code", "LINcode", "LIN_code", "LIN", "lin", "lincode", "LINCODE",
+    ])
+    args.group_col = resolve_column(df, args.group_col, [
+        "source", "Source", "group", "Group", "reservoir", "host", "metadata_source",
+    ])
+    if args.lin_col is None:
+        raise ValueError(
+            "Could not find a LIN column. Try --lin-col and check your input columns."
+        )
+    if args.group_col is None:
+        raise ValueError(
+            "Could not find a grouping/source column. Try --group-col and check your input columns."
+        )
+    div = lin_diversification(
+        df,
+        lin_col=args.lin_col,
+        group_col=args.group_col,
+        thresholds=args.thresholds,
+        max_level=args.max_level,
+    )
+
+    div.table.to_csv(tables / "diversification.tsv", sep="\t", index=False)
+
+    # Option A (default): reservoir-only plot
+    reservoir = ["chicken", "ruminant", "pig", "wild bird"]
+    df_res = div.table[div.table["source"].isin(reservoir)].copy()
+    if not df_res.empty:
+        plot_diversification_curve(
+            df_res,
+            outdir=plots,
+            filename="diversification",
+            formats=args.formats,
+            title=args.title,
+        )
+
+    # Option B: all sources present
     plot_diversification_curve(
-        div_res,
-        outpath_base=outdir / "diversification",
-        title=args.title_reservoir or "Diversification by LIN threshold (reservoirs)",
-        max_level=max_level,
-        formats=formats,
+        div.table,
+        outdir=plots,
+        filename="diversification_all_sources",
+        formats=args.formats,
+        title=(args.title + " (all sources)") if args.title else "Diversification (all sources)",
     )
 
-    # All sources (epi view)
-    plot_diversification_curve(
-        div,
-        outpath_base=outdir / "diversification_all_sources",
-        title=args.title_all or "Diversification by LIN threshold (all sources)",
-        max_level=max_level,
-        formats=formats,
-    )
+    logging.info("[LINwalker] Wrote diversification outputs to: %s", outdir)
 
-    print(f"[LINwalker] Wrote diversification outputs to: {outdir}")
-
-
-def cmd_introgress(args):
-    df = pd.read_csv(args.input, sep="\t", low_memory=False)
-    inferred = infer_max_level_from_lincode(df[args.lin_col])
-    max_level = min(int(args.max_level), int(inferred))
-    thresholds = parse_thresholds(args.thresholds, max_level=max_level)
-
+def cmd_introgress(args: argparse.Namespace) -> None:
     outdir = Path(args.outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
+    plots, tables, logs, _derived = _ensure_outdirs(outdir)
+    _setup_logging(logs / "introgress.log", verbose=args.verbose)
 
-    mix = mixed_species_summary(df, lin_col=args.lin_col, species_col=args.species_col, thresholds=thresholds)
-    mix.to_csv(outdir / "mixed_species.tsv", sep="\t", index=False)
-
-    formats = args.formats
-    plot_mixed_species(
-        mix,
-        outpath_base=outdir / "mixed_species",
-        title=args.title_mixed or "Mixed-species LIN clusters vs LIN threshold",
-        max_level=max_level,
-        formats=formats,
-    )
-
-    lin_df_lsdd = lsdd(df, lin_col=args.lin_col, species_col=args.species_col, thresholds=thresholds)
-    lin_df_lsdd.to_csv(outdir / "lsdd.tsv", sep="\t", index=False)
-
-    plot_lsdd_by_source(
-        lin_df_lsdd,
-        outpath_base=outdir / "lsdd_by_source",
-        title=args.title_lsdd or "LSDD by source",
-        formats=formats,
-        show_points=not args.no_points,
-        style=args.lsdd_style,
-    )
-
-    if args.export_bridges:
-        # Early discordance isolates
-        early = lin_df_lsdd.sort_values(["LSDD", args.source_col, args.species_col]).head(args.n_bridges)
-        early.to_csv(outdir / "bridge_isolates_early_lsdd.tsv", sep="\t", index=False)
-
-        # Mixed clusters at a chosen threshold (default: minimum threshold)
-        k = args.bridge_threshold if args.bridge_threshold is not None else min(thresholds)
-        prefix = df[args.lin_col].astype(str).str.split("_").str[:k].str.join("_")
-        tmp = df.copy()
-        tmp["LIN_prefix"] = prefix
-        # clusters where >1 species
-        g = tmp.groupby("LIN_prefix")[args.species_col].nunique().reset_index(name="n_species")
-        mixed = tmp.merge(g[g["n_species"] > 1], on="LIN_prefix")
-        mixed.to_csv(outdir / f"mixed_species_clusters_LIN{k}.tsv", sep="\t", index=False)
-
-    print(f"[LINwalker] Wrote introgression outputs to: {outdir}")
-
-
-def cmd_stcc(args):
     df = pd.read_csv(args.input, sep="\t", low_memory=False)
-    inferred = infer_max_level_from_lincode(df[args.lin_col])
-    max_level = min(int(args.max_level), int(inferred))
-    thresholds = parse_thresholds(args.thresholds, max_level=max_level)
 
+    args.lin_col = resolve_column(
+        df,
+        args.lin_col,
+        ["lin_code", "LINcode", "LIN_code", "LIN", "lincode", "lin"],
+    )
+    args.species_col = resolve_column(
+        df,
+        args.species_col,
+        ["species", "Species", "organism", "Organism"],
+    )
+    if args.lin_col is None:
+        raise ValueError("Could not find a LIN code column. Use --lin-col to specify it.")
+    if args.species_col is None:
+        raise ValueError("Could not find a species column. Use --species-col to specify it.")
+
+    mix = mixed_species_fraction(
+        df,
+        lin_col=args.lin_col,
+        species_col=args.species_col,
+        thresholds=args.thresholds,
+        max_level=args.max_level,
+    )
+    lsdd = lsdd_by_level(
+        df,
+        lin_col=args.lin_col,
+        species_col=args.species_col,
+        thresholds=args.thresholds,
+        max_level=args.max_level,
+    )
+
+    # plotting.plot_lsdd expects an "lsdd" column
+    if "lsdd" not in lsdd.columns and "mean_species_per_prefix" in lsdd.columns:
+        lsdd = lsdd.rename(columns={"mean_species_per_prefix": "lsdd"})
+
+    mix.to_csv(tables / "mixed_species.tsv", sep="\t", index=False)
+    lsdd.to_csv(tables / "lsdd.tsv", sep="\t", index=False)
+
+    plot_mixed_species(mix, outdir=plots, filename="mixed_species", formats=args.formats, title=args.title_mixed, max_level=args.max_level)
+    plot_lsdd(lsdd, outdir=plots, filename="lsdd", formats=args.formats, title=args.title_lsdd)
+
+    logging.info("Wrote introgression outputs to: %s", outdir)
+
+def cmd_stcc(args: argparse.Namespace) -> None:
     outdir = Path(args.outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
+    plots, tables, logs, _derived = _ensure_outdirs(outdir)
+    _setup_logging(logs / "stcc.log", verbose=args.verbose)
 
-    stcc = stcc_concordance_by_threshold(
+    df = pd.read_csv(args.input, sep="\t", low_memory=False)
+
+    args.lin_col = resolve_column(
+        df,
+        args.lin_col,
+        ["lin_code", "LINcode", "LIN_code", "LIN", "lincode", "lin"],
+    )
+    if args.lin_col is None:
+        raise ValueError(
+            "Could not find a LIN column. Tried: lin_code, LINcode, LIN_code, LIN, lincode, lin."
+        )
+
+    res = stcc_concordance(
         df,
         lin_col=args.lin_col,
         st_col=args.st_col,
         cc_col=args.cc_col,
-        thresholds=thresholds,
-        min_cluster_size=args.min_cluster_size,
+        thresholds=args.thresholds,
+        max_level=args.max_level,
     )
 
-    stcc.to_csv(outdir / "stcc_concordance.tsv", sep="\t", index=False)
-
+    res.table.to_csv(tables / "stcc_concordance.tsv", sep="\t", index=False)
     plot_stcc_concordance(
-        stcc,
-        outpath_base=outdir / "stcc_concordance",
-        title=args.title or "LIN ↔ MLST concordance vs LIN threshold",
-        max_level=max(thresholds),
+        res.table,
+        outdir=plots,
+        filename="stcc_concordance",
         formats=args.formats,
+        title=args.title,
     )
+    logging.info("Wrote outputs to %s", outdir)
 
-    print(f"[LINwalker] Wrote ST/CC concordance outputs to: {outdir}")
-
-
-def cmd_tree(args):
-    df = pd.read_csv(args.input, sep="\t", low_memory=False)
+def cmd_tree(args: argparse.Namespace) -> None:
     outdir = Path(args.outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
+    plots, tables, logs, _derived = _ensure_outdirs(outdir)
+    _setup_logging(logs / "tree.log", verbose=getattr(args, "verbose", False))
+    logging.info(f"LINwalker v{__version__} | tree")
 
-    micro = export_microreact_tsv(
+    df = _read_tsv(args.input)
+
+    args.lin_col = resolve_column(
         df,
-        outdir / "microreact.tsv",
-        id_col=args.id_col,
+        args.lin_col,
+        ["lin_code", "LINcode", "LIN_code", "LIN", "lincode", "lin"],
+    )
+    if args.lin_col is None:
+        raise ValueError("Could not find a LIN column. Use --lin-col to specify.")
+
+    args.source_col = resolve_column(
+        df,
+        args.source_col,
+        ["source", "reservoir", "host", "group"],
+    )
+    export_tree_metadata(
+        df,
+        outdir=tables,
+        lin_col=args.lin_col,
+        sample_col=args.sample_col,
         source_col=args.source_col,
         species_col=args.species_col,
-        lin_col=args.lin_col,
+        threshold=args.threshold,
+        extra_cols=args.extra_cols,
     )
-
-    itol = export_itol_colourstrip(
-        df,
-        outdir / f"itol_colourstrip_{args.category}.txt",
-        id_col=args.id_col,
-        category_col=args.category,
-        title=args.title or "LINwalker",
-    )
-
-    print(f"[LINwalker] Wrote tree metadata: {micro} | {itol}")
+    logging.info(f"Wrote tree metadata to: {tables}")
 
 
-def cmd_outbreak(args):
-    df = pd.read_csv(args.input, sep="\t", low_memory=False)
-
+def cmd_outbreak(args: argparse.Namespace) -> None:
     outdir = Path(args.outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
+    plots, tables, logs, _derived = _ensure_outdirs(outdir)
+    _setup_logging(logs / "outbreak.log", verbose=getattr(args, "verbose", False))
+    logging.info(f"LINwalker v{__version__} | outbreak")
 
-    inferred = infer_max_level_from_lincode(df[args.lin_col])
-    max_level = min(int(args.max_level), int(inferred))
-    thresholds = parse_thresholds(args.thresholds, max_level=max_level)
+    df = _read_tsv(args.input)
 
-    # Per-isolate cluster sizes across levels
-    per_iso = per_isolate_cluster_sizes(df, lin_col=args.lin_col, thresholds=thresholds)
-    per_iso.to_csv(outdir / "per_isolate_cluster_sizes.tsv", sep="\t", index=False)
+    args.lin_col = resolve_column(
+        df,
+        args.lin_col,
+        ["lin_code", "LINcode", "LIN_code", "LIN", "lincode", "lin"],
+    )
+    if args.lin_col is None:
+        raise ValueError("Could not find a LIN column; try --lin-col.")
 
-    # Level summaries
-    levels = summarise_levels(df, lin_col=args.lin_col, thresholds=thresholds)
-    levels.to_csv(outdir / "cluster_levels_summary.tsv", sep="\t", index=False)
+    args.source_col = resolve_column(df, args.source_col, ["source", "Source", "group", "reservoir", "host"])
+    args.country_col = resolve_column(df, args.country_col, ["country", "Country", "location", "Location"])
+    args.date_col = resolve_column(df, args.date_col, ["date", "collection_date", "isolation_date", "year", "Year"])
 
-    # Top clusters at a chosen threshold (default: max threshold)
-    top_thr = int(args.top_threshold) if args.top_threshold is not None else int(max(thresholds))
-    top_thr = min(top_thr, int(max(thresholds)))
-    top = top_clusters_table(
+    res = outbreak_descriptives(
         df,
         lin_col=args.lin_col,
-        threshold=top_thr,
-        n=int(args.top_n),
         source_col=args.source_col,
-        species_col=args.species_col,
         country_col=args.country_col,
-        id_col=args.id_col,
+        date_col=args.date_col,
+        top_n=args.top_n,
+        top_threshold=args.top_threshold,
     )
-    top.to_csv(outdir / f"top_clusters_LIN{top_thr}.tsv", sep="\t", index=False)
 
-    # Optional epi curve
-    if args.date_col:
-        try:
-            ec = epi_curve(df, date_col=args.date_col, lin_col=args.lin_col, threshold=top_thr)
-            ec.to_csv(outdir / f"epi_curve_LIN{top_thr}.tsv", sep="\t", index=False)
-        except Exception as e:
-            print(f"[LINwalker] Warning: could not compute epi curve ({e})")
+    res.top_clusters.to_csv(tables / "top_clusters.tsv", sep="\t", index=False)
+    res.cluster_source_counts.to_csv(tables / "cluster_source_counts.tsv", sep="\t", index=False)
+    if res.cluster_country_counts is not None:
+        res.cluster_country_counts.to_csv(tables / "cluster_country_counts.tsv", sep="\t", index=False)
+    if res.cluster_date_counts is not None:
+        res.cluster_date_counts.to_csv(tables / "cluster_date_counts.tsv", sep="\t", index=False)
 
-    # Plots
-    plot_cluster_size_summary(
-        levels,
-        outpath_base=outdir / "cluster_size_summary",
-        title=args.title or "Per-isolate LIN cluster size vs LIN threshold",
+    plot_outbreak_top_clusters(
+        res.top_clusters,
+        outdir=plots,
+        filename="top_clusters",
         formats=args.formats,
-        max_level=max(thresholds),
+        title=args.title,
     )
-    plot_cluster_size_boxplot(
-        per_iso,
-        outpath_base=outdir / "cluster_size_boxplot",
-        title=args.title_box or "Per-isolate cluster sizes (box + points)",
-        formats=args.formats,
-        max_level=max(thresholds),
-        sample_points=int(args.sample_points),
-    )
+    if res.cluster_date_counts is not None:
+        plot_outbreak_epicurve(
+            res.cluster_date_counts,
+            outdir=plots,
+            filename="epicurve",
+            formats=args.formats,
+            title=(args.title + " (epi curve)" if args.title else None),
+        )
 
-    print(f"[LINwalker] Wrote outbreak/public-health outputs to: {outdir}")
+    logging.info(f"Wrote outbreak outputs to: {outdir}")
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="linwalker", description="LINwalker")
-    sub = p.add_subparsers(dest="cmd", required=True)
+    parser = argparse.ArgumentParser(
+        prog="linwalker",
+        description="LINwalker",
+        allow_abbrev=False,
+    )
+    parser.add_argument("--verbose", action="store_true", help="Verbose logging")
+    parser.add_argument("--version", action="version", version=f"LINwalker {__version__}")
+
+    sub = parser.add_subparsers(dest="cmd", required=True)
 
     # prep
-    s = sub.add_parser("prep", help="Prepare PubMLST export into analysis-ready tables")
-    s.add_argument("--input", required=True, help="PubMLST export TSV/TSV.GZ")
-    s.add_argument("--outdir", required=True, help="Output directory for derived tables")
-    s.add_argument("--prefix", default=None, help="Output filename prefix")
-    s.add_argument("--source-col", default="source", help="Source column")
-    s.add_argument("--species-col", default="species", help="Species column")
-    s.add_argument("--no-bin-sources", action="store_true", help="Do not collapse source labels into stable bins")
-    s.set_defaults(func=cmd_prep)
+    p = sub.add_parser("prep", help="Prepare PubMLST export into analysis-ready tables", allow_abbrev=False)
+    p.add_argument("--input", required=True)
+    p.add_argument("--outdir", required=True)
+    p.add_argument("--prefix", default="RUN", help="Prefix for output file basenames")
+    p.add_argument("--no-bin-sources", action="store_true", help="Do not collapse/bin source labels")
+    p.add_argument("--lin-col", default="LINcode")
+    p.add_argument("--sample-col", default="isolate")
+    p.add_argument("--source-col", default="source")
+    p.add_argument("--species-col", default="species")
+    p.add_argument("--st-col", default="ST")
+    p.add_argument("--cc-col", default="clonal_complex")
+    p.add_argument("--country-col", default="country")
+    p.add_argument("--date-col", default="date")
+    p.set_defaults(func=cmd_prep)
 
     # diversify
-    s = sub.add_parser("diversify", help="Compute diversification curves and plot")
-    s.add_argument("--input", required=True, help="LINwalker minimal TSV")
-    s.add_argument("--lin-col", default="LINcode")
-    s.add_argument("--group-col", default="source")
-    s.add_argument("--thresholds", default=None, help="Thresholds, e.g. '1-17' or '1,2,5'")
-    s.add_argument("--max-level", type=int, default=17, help="Maximum LIN level to analyze/plot (default: 17)")
-    s.add_argument("--formats", nargs="+", default=["png", "svg"], help="Output formats (png svg)")
-    s.add_argument("--outdir", required=True)
-    s.add_argument("--title-reservoir", default=None)
-    s.add_argument("--title-all", default=None)
-    s.set_defaults(func=cmd_diversify)
+    p = sub.add_parser("diversify", help="Compute diversification curves and plot", allow_abbrev=False)
+    p.add_argument("--input", required=True)
+    p.add_argument("--outdir", required=True)
+    p.add_argument("--lin-col", default="lin_code")
+    p.add_argument("--group-col", default="source")
+    p.add_argument("--thresholds", default=None, help='e.g. "1-17" or "1,3,5"')
+    p.add_argument("--max-level", type=int, default=17)
+    p.add_argument("--formats", nargs="+", default=["png", "svg"], help="Output image formats")
+    p.add_argument("--title", default=None)
+    p.set_defaults(func=cmd_diversify)
 
     # introgress
-    s = sub.add_parser("introgress", help="Compute mixed-species curves and LSDD + plots")
-    s.add_argument("--input", required=True, help="LINwalker minimal TSV")
-    s.add_argument("--lin-col", default="LINcode")
-    s.add_argument("--species-col", default="species")
-    s.add_argument("--source-col", default="source")
-    s.add_argument("--thresholds", default=None, help="Thresholds, e.g. '1-17' or '1,2,5'")
-    s.add_argument("--max-level", type=int, default=17, help="Maximum LIN level to analyze/plot (default: 17)")
-    s.add_argument("--formats", nargs="+", default=["png", "svg"], help="Output formats (png svg)")
-    s.add_argument("--outdir", required=True)
-    s.add_argument("--title-mixed", default=None)
-    s.add_argument("--title-lsdd", default=None)
-    s.add_argument("--no-points", action="store_true", help="Do not overlay per-isolate points on LSDD plot")
-    s.add_argument("--lsdd-style", default="violin_box", choices=["violin_box", "violin", "box"], help="LSDD plot style")
-    s.add_argument("--export-bridges", action="store_true", help="Write bridge isolate / mixed-cluster tables")
-    s.add_argument("--n-bridges", type=int, default=250, help="Number of early-LSDD isolates to export")
-    s.add_argument("--bridge-threshold", type=int, default=None, help="LIN threshold for exporting mixed clusters")
-    s.set_defaults(func=cmd_introgress)
+    p = sub.add_parser("introgress", help="Compute mixed-species curves and LSDD + plots", allow_abbrev=False)
+    p.add_argument("--input", required=True)
+    p.add_argument("--outdir", required=True)
+    p.add_argument("--lin-col", default="lin_code")
+    p.add_argument("--species-col", default="species")
+    p.add_argument("--thresholds", default=None)
+    p.add_argument("--max-level", type=int, default=17)
+    p.add_argument("--formats", nargs="+", default=["png", "svg"])
+    p.add_argument("--title-mixed", default=None)
+    p.add_argument("--title-lsdd", default=None)
+    p.set_defaults(func=cmd_introgress)
 
     # stcc
-    s = sub.add_parser("stcc", help="Relate LIN thresholds to MLST ST and clonal complex")
-    s.add_argument("--input", required=True, help="Metadata TSV containing LINcode, ST and clonal complex")
-    s.add_argument("--lin-col", default="LINcode")
-    s.add_argument("--st-col", default="ST (MLST)")
-    s.add_argument("--cc-col", default="clonal_complex (MLST)")
-    s.add_argument("--thresholds", default=None, help="Thresholds, e.g. '1-17' or '1,2,5'")
-    s.add_argument("--max-level", type=int, default=17, help="Maximum LIN level to analyze/plot (default: 17)")
-    s.add_argument("--formats", nargs="+", default=["png", "svg"], help="Output formats (png svg)")
-    s.add_argument("--min-cluster-size", type=int, default=1, help="Exclude LIN clusters smaller than this size")
-    s.add_argument("--outdir", required=True)
-    s.add_argument("--title", default=None)
-    s.set_defaults(func=cmd_stcc)
+    p = sub.add_parser("stcc", help="Relate LIN thresholds to MLST ST and clonal complex", allow_abbrev=False)
+    p.add_argument("--input", required=True)
+    p.add_argument("--outdir", required=True)
+    p.add_argument("--lin-col", default="lin_code")
+    p.add_argument("--st-col", default="ST")
+    p.add_argument("--cc-col", default="clonal_complex")
+    p.add_argument("--thresholds", default=None)
+    p.add_argument("--max-level", type=int, default=17)
+    p.add_argument("--formats", nargs="+", default=["png", "svg"])
+    p.add_argument("--title", default=None)
+    p.set_defaults(func=cmd_stcc)
 
-    # tree exports
-    s = sub.add_parser("tree", help="Export Microreact/iTOL metadata to colour an existing tree")
-    s.add_argument("--input", required=True, help="LINwalker minimal TSV")
-    s.add_argument("--outdir", required=True)
-    s.add_argument("--id-col", default="isolate")
-    s.add_argument("--lin-col", default="LINcode")
-    s.add_argument("--source-col", default="source")
-    s.add_argument("--species-col", default="species")
-    s.add_argument("--category", default="source", help="Column to colour-by for iTOL (default: source)")
-    s.add_argument("--title", default=None, help="Label used in iTOL dataset")
-    s.set_defaults(func=cmd_tree)
+    # tree
+    p = sub.add_parser("tree", help="Export Microreact/iTOL metadata to colour an existing tree", allow_abbrev=False)
+    p.add_argument("--input", required=True)
+    p.add_argument("--outdir", required=True)
+    p.add_argument("--lin-col", default="lin_code")
+    p.add_argument("--sample-col", default="isolate")
+    p.add_argument("--source-col", default="source")
+    p.add_argument("--species-col", default="species")
+    p.add_argument("--threshold", type=int, default=12)
+    p.add_argument("--extra-cols", default=None, help="Comma-separated extra metadata columns to include")
+    p.set_defaults(func=cmd_tree)
 
-    # outbreak / public health summaries
-    s = sub.add_parser("outbreak", help="Descriptive outbreak/public-health summaries from LIN codes")
-    s.add_argument("--input", required=True, help="LINwalker minimal TSV")
-    s.add_argument("--lin-col", default="LINcode", help="Full LIN code column")
-    s.add_argument("--source-col", default="source", help="Source column")
-    s.add_argument("--species-col", default="species", help="Species column")
-    s.add_argument("--country-col", default="country", help="Country/region column")
-    s.add_argument("--date-col", default=None, help="Optional collection date column")
-    s.add_argument("--top-n", type=int, default=10, help="Number of top clusters to export")
-    s.add_argument("--top-threshold", type=int, default=12, help="LIN threshold for top-cluster table")
-    s.add_argument("--max-level", type=int, default=17, help="Maximum LIN threshold to consider")
-    s.add_argument("--formats", nargs="+", default=["png", "svg"], help="Output figure formats")
-    s.add_argument("--title", default=None, help="Optional title prefix")
-    s.add_argument("--outdir", required=True)
-    s.set_defaults(func=cmd_outbreak)
+    # outbreak
+    p = sub.add_parser("outbreak", help="Descriptive outbreak/public-health summaries from LIN codes", allow_abbrev=False)
+    p.add_argument("--input", required=True)
+    p.add_argument("--outdir", required=True)
+    p.add_argument("--lin-col", default="lin_code")
+    p.add_argument("--source-col", default="source")
+    p.add_argument("--species-col", default="species")
+    p.add_argument("--country-col", default="country")
+    p.add_argument("--date-col", default="date")
+    p.add_argument("--top-n", type=int, default=25)
+    p.add_argument("--top-threshold", type=int, default=12)
+    p.add_argument(
+        "--thresholds",
+        default="1-17",
+        help="Threshold range/string for plotting (accepted for compatibility; default 1-17)",
+    )
+    p.add_argument(
+        "--max-level",
+        type=int,
+        default=17,
+        help="Maximum LIN level to consider for plotting",
+    )
+    p.add_argument("--formats", nargs="+", default=["png", "svg"])
+    p.add_argument("--title", default=None)
+    p.set_defaults(func=cmd_outbreak)
 
-    return p
+    return parser
 
 
-def main(argv=None):
+def main(argv: List[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
     args.func(args)
-
-

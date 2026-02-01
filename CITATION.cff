@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use LINwalker, please cite it as below."
+title: "LINwalker"
+version: 1.0.14
+authors:
+  - family-names: "Pascoe"
+    given-names: "Ben"
+date-released: "2026-02-01"
+url: "https://github.com/Benizao1980/LINwalker"
+license: "MIT"
+keywords:
+  - genomics
+  - LIN
+  - Campylobacter
+  - outbreak
+  - surveillance

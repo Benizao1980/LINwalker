@@ -1,0 +1,134 @@
+Metadata-Version: 2.4
+Name: linwalker
+Version: 1.0.14
+Summary: Lightweight toolkit for exploring hierarchical population structure and introgression using LIN codes
+Author: Ben Pascoe, Kasia M. Parfitt
+License: MIT
+Project-URL: Homepage, https://github.com/Benizao1980/LINwalker
+Project-URL: Repository, https://github.com/Benizao1980/LINwalker
+Keywords: LIN codes,cgMLST,Campylobacter,genomic epidemiology,introgression
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.21
+Requires-Dist: pandas>=1.5
+Requires-Dist: matplotlib>=3.6
+Requires-Dist: scikit-learn>=1.2
+
+# LINwalker
+
+A lightweight toolkit for exploring hierarchical population structure and introgression using **LIN codes** (e.g. PubMLST Campylobacter cgMLST v2 LIN codes).
+
+## Install
+
+### Option A: Conda
+
+```bash
+conda create -n linwalker python=3.11 -y
+conda activate linwalker
+pip install -e .
+```
+
+### Option B: pip (in a venv)
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+## Quickstart: generic PubMLST Campylobacter walkthrough
+
+This is an end-to-end run using a **PubMLST isolate export** (TSV/CSV) that includes a LIN code column.
+
+### 1) Prepare derived tables
+
+```bash
+python -m linwalker prep \
+  --input your_pubmlst_export.tsv \
+  --outdir results/run_001/prep \
+  --lin-col LINcode \
+  --id-col isolate \
+  --species-col Species \
+  --source-col Source \
+  --country-col Country \
+  --date-col Collection_date
+```
+
+Outputs:
+- `results/run_001/prep/derived/PATHSAFE_LINwalker_min.tsv` (analysis-ready)
+- `results/run_001/prep/derived/PATHSAFE_metadata_only.tsv` (metadata-only)
+
+### 2) Diversification curves
+
+```bash
+python -m linwalker diversify \
+  --input results/run_001/prep/derived/PATHSAFE_LINwalker_min.tsv \
+  --outdir results/run_001/diversification \
+  --thresholds 1-17 \
+  --formats png svg
+```
+
+Outputs (stable structure):
+- `results/run_001/diversification/plots/`
+- `results/run_001/diversification/tables/`
+- `results/run_001/diversification/logs/`
+
+### 3) Introgression summaries (mixed species + LSDD)
+
+```bash
+python -m linwalker introgress \
+  --input results/run_001/prep/derived/PATHSAFE_LINwalker_min.tsv \
+  --outdir results/run_001/introgression \
+  --thresholds 1-17 \
+  --formats png svg
+```
+
+### 4) Relate LIN thresholds to ST / CC
+
+```bash
+python -m linwalker stcc \
+  --input results/run_001/prep/derived/PATHSAFE_metadata_only.tsv \
+  --outdir results/run_001/stcc \
+  --thresholds 1-17 \
+  --formats png svg
+```
+
+### 5) Outbreak / public health descriptives
+
+```bash
+python -m linwalker outbreak \
+  --input results/run_001/prep/derived/PATHSAFE_LINwalker_min.tsv \
+  --outdir results/run_001/outbreak \
+  --thresholds 1-17 \
+  --top-threshold 12 \
+  --top-n 25 \
+  --formats png svg
+```
+
+### 6) Tree colouring metadata (Microreact/iTOL)
+
+```bash
+python -m linwalker tree \
+  --input results/run_001/prep/derived/PATHSAFE_LINwalker_min.tsv \
+  --outdir results/run_001/tree \
+  --threshold 12
+```
+
+This writes metadata you can join to an existing tree.
+
+## Output structure (stable)
+
+Every module writes to:
+
+```
+<outdir>/plots/
+<outdir>/tables/
+<outdir>/logs/
+```
+
+## Help
+
+```bash
+python -m linwalker --help
+python -m linwalker diversify --help
+```

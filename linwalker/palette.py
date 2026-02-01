@@ -1,12 +1,24 @@
-# linwalker/palette.py
-# Fixed source-attribution palette (Wes Anderson–adjacent, print-safe).
-# Keep stable across figures/papers.
+"""Colour palettes used across LINwalker."""
 
-SOURCE_COLOURS = {
-    "chicken": "#E6C229",       # mustard yellow
-    "ruminant": "#4F7F6A",      # muted green
-    "pig": "#D88C9A",           # dusty pink
-    "wild bird": "#7A5195",     # aubergine purple
-    "other animal": "#8E8E8E",  # grey
-    "human": "#1F1F1F"          # near-black
+from __future__ import annotations
+
+from typing import Dict
+
+DEFAULT_PALETTE: Dict[str, str] = {
+    "chicken": "#E6B800",
+    "ruminant": "#4F7F6A",
+    "pig": "#D081A3",
+    "wild bird": "#6A4C93",
+    "human": "#1A1A1A",
+    "other": "#777777",
 }
+
+RESERVOIR_SOURCES = ["chicken", "ruminant", "pig", "wild bird"]
+
+
+def get_palette(custom: Dict[str, str] | None = None) -> Dict[str, str]:
+    """Return a palette dict, optionally updated with custom colours."""
+    pal = dict(DEFAULT_PALETTE)
+    if custom:
+        pal.update(custom)
+    return pal

@@ -1,89 +1,50 @@
-"""Exports for tree visualisation tools.
-
-This module does not *draw* trees. Instead, it writes small metadata files that
-can be imported into existing tree viewers.
-
-Currently supported:
-- Microreact: TSV with isolate id + columns to colour-by (e.g. source, species)
-- iTOL: colourstrip file (simple, categorical)
-
-You can colour an existing tree without re-rendering it in LINwalker.
-"""
-
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 
-from .palette import SOURCE_COLOURS
+from .utils import lin_prefix
 
 
-def export_microreact_tsv(
+@dataclass
+class TreeExportResult:
+    metadata: pd.DataFrame
+
+
+def export_tree_metadata(
     df: pd.DataFrame,
-    outpath: str | Path,
-    id_col: str = "isolate",
+    *,
+    outdir: Path,
+    lin_col: str = "lin_code",
+    sample_col: str = "isolate",
     source_col: str = "source",
     species_col: str = "species",
-    lin_col: str = "LINcode",
-    extra_cols: Optional[list[str]] = None,
-) -> Path:
-    """Write a Microreact-compatible TSV.
+    threshold: int = 12,
+    extra_cols: Optional[str] = None,
+) -> TreeExportResult:
+    """Create a simple metadata table for iTOL/Microreact.
 
-    Microreact will import any TSV with a sample id column; users can then choose
-    which column to colour by.
+    The main field is a `LIN_<threshold>` column containing the LIN prefix,
+    which can be used for colouring/labeling.
     """
-    outpath = Path(outpath)
-    outpath.parent.mkdir(parents=True, exist_ok=True)
 
-    keep = [id_col, source_col, species_col, lin_col]
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    cols = [c for c in [sample_col, source_col, species_col, lin_col] if c in df.columns]
+    m = df[cols].copy()
+    m[f"LIN_{threshold}"] = m[lin_col].astype(str).apply(lambda s: lin_prefix(s, threshold))
+
     if extra_cols:
-        keep += [c for c in extra_cols if c in df.columns and c not in keep]
+        for c in [x.strip() for x in extra_cols.split(",") if x.strip()]:
+            if c in df.columns and c not in m.columns:
+                m[c] = df[c]
 
-    out = df.loc[:, [c for c in keep if c in df.columns]].copy()
-    out.to_csv(outpath, sep="\t", index=False)
-    return outpath
+    # Best-effort: set the sample id as the first column
+    if sample_col in m.columns:
+        m = m[[sample_col] + [c for c in m.columns if c != sample_col]]
 
-
-def export_itol_colourstrip(
-    df: pd.DataFrame,
-    outpath: str | Path,
-    id_col: str = "isolate",
-    category_col: str = "source",
-    title: str = "LINwalker",
-    palette: Optional[dict[str, str]] = None,
-) -> Path:
-    """Write a minimal iTOL colourstrip file.
-
-    iTOL colourstrip format:
-      DATASET_COLORSTRIP
-      SEPARATOR TAB
-      DATASET_LABEL ...
-      COLOR ...
-      DATA
-      <id> <hex> <label>
-
-    This is intentionally simple and works well for source bins.
-    """
-    outpath = Path(outpath)
-    outpath.parent.mkdir(parents=True, exist_ok=True)
-
-    pal = palette or SOURCE_COLOURS
-
-    tmp = df[[id_col, category_col]].copy()
-    tmp[category_col] = tmp[category_col].astype(str).str.lower()
-    tmp["hex"] = tmp[category_col].map(pal).fillna("#808080")
-
-    lines = [
-        "DATASET_COLORSTRIP",
-        "SEPARATOR\tTAB",
-        f"DATASET_LABEL\t{title}",
-        "COLOR\t#000000",
-        "DATA",
-    ]
-    for _, row in tmp.iterrows():
-        lines.append(f"{row[id_col]}\t{row['hex']}\t{row[category_col]}")
-
-    outpath.write_text("\n".join(lines) + "\n")
-    return outpath
+    m.to_csv(outdir / "tree_metadata.tsv", sep="\t", index=False)
+    return TreeExportResult(metadata=m)

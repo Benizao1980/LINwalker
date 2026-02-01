@@ -1,1 +1,4 @@
-__version__ = '1.0.7'
+"""LINwalker: explore hierarchical population structure and introgression using LIN codes."""
+
+__all__ = ["__version__"]
+__version__ = "1.0.15"
