@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "linwalker"
+version = "1.0.7"
+description = "Explore hierarchical population structure and interspecies introgression using LIN codes"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "Ben Pascoe"}]
+keywords = ["LIN", "cgMLST", "PubMLST", "population structure", "Campylobacter", "introgression"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+dependencies = [
+  "numpy",
+  "pandas",
+  "matplotlib",
+  "seaborn",
+  "scikit-learn",
+]
+
+[project.scripts]
+linwalker = "linwalker.cli:main"
+
+[tool.setuptools]
+packages = ["linwalker"]
