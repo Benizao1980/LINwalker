@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="linwalker_logo_variantA_steps.svg" width="360" alt="LINwalker logo">
+</p>
+
 # LINwalker
 
 **LINwalker** is a lightweight Python toolkit for exploring hierarchical population structure and interspecies introgression using LIN codes (e.g., from PubMLST cgMLST schemes).
@@ -153,6 +157,33 @@ Outputs:
 - `epi_curve_*.*` if you provide a `--date-col`
 
 > Note: `stcc` expects columns named `ST (MLST)` and `clonal_complex (MLST)` if you feed it the `prep` output.
+
+Or just run everything using: 
+
+```bash
+python -m linwalker diversify \
+  --input data/derived/PATHSAFE_LINwalker_min.tsv \
+  --outdir results/diversification \
+  --formats png svg
+
+python -m linwalker introgress \
+  --input data/derived/PATHSAFE_LINwalker_min.tsv \
+  --outdir results/introgression \
+  --formats png svg
+
+python -m linwalker stcc \
+  --input data/derived/PATHSAFE_metadata_only.tsv \
+  --outdir results/stcc \
+  --formats png svg
+
+python -m linwalker outbreak \
+  --input data/derived/PATHSAFE_LINwalker_min.tsv \
+  --outdir results/outbreak \
+  --thresholds 1-17 \
+  --top-threshold 12 \
+  --top-n 25 \
+  --formats png svg
+```
 
 ## Notes on interpretation (*Campylobacter*)
 - LIN thresholds are strictly 1–17
