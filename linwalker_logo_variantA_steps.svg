@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="120" viewBox="0 0 360 120" role="img" aria-label="LINwalker logo (steps)">
+  <defs>
+    <style>
+      .bg { fill:#000; }
+      .stroke { fill:none; stroke-linecap:square; stroke-linejoin:miter; }
+      .w { stroke:#fff; }
+      .p { stroke:#7A6FAF; }
+    </style>
+    <pattern id="grid" width="14" height="14" patternUnits="userSpaceOnUse">
+      <path d="M14 0H0V14" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <!-- Frame -->
+  <rect class="bg" x="6" y="6" width="348" height="108"/>
+  <rect class="stroke w" x="14" y="14" width="332" height="92" stroke-width="2"/>
+  <rect x="14" y="14" width="332" height="92" fill="url(#grid)" opacity="0.25"/>
+
+  <!-- Threshold ticks (implicit 1..n) -->
+  <g opacity="0.5">
+    <path class="stroke w" d="M60 92 V100" stroke-width="2"/>
+    <path class="stroke w" d="M96 92 V100" stroke-width="2"/>
+    <path class="stroke w" d="M132 92 V100" stroke-width="2"/>
+    <path class="stroke w" d="M168 92 V100" stroke-width="2"/>
+    <path class="stroke w" d="M204 92 V100" stroke-width="2"/>
+    <path class="stroke w" d="M240 92 V100" stroke-width="2"/>
+    <path class="stroke w" d="M276 92 V100" stroke-width="2"/>
+    <path class="stroke w" d="M312 92 V100" stroke-width="2"/>
+  </g>
+
+  <!-- Stepped walk path -->
+  <path class="stroke w" d="M48 84 H92 V72 H128 V60 H164 V52 H196 V46 H228 V52 H260 V60 H296 V72 H330" stroke-width="6"/>
+
+  <!-- Uncertainty / missingness segment (dotted) -->
+  <path class="stroke w" d="M164 60 H196" stroke-width="6" stroke-dasharray="10 10" opacity="0.9"/>
+
+  <!-- Focused step (accent) -->
+  <path class="stroke p" d="M228 52 H260 V60" stroke-width="6"/>
+
+  <!-- Milestone nodes -->
+  <g>
+    <rect x="88" y="80" width="8" height="8" fill="#fff"/>
+    <rect x="160" y="56" width="8" height="8" fill="#fff"/>
+    <rect x="224" y="48" width="8" height="8" fill="#7A6FAF"/>
+    <rect x="292" y="68" width="8" height="8" fill="#fff"/>
+  </g>
+
+  <!-- Micro-labels -->
+  <g opacity="0.55">
+    <rect x="24" y="22" width="30" height="2" fill="#fff"/>
+    <rect x="24" y="26" width="18" height="2" fill="#fff"/>
+    <rect x="24" y="30" width="24" height="2" fill="#fff"/>
+  </g>
+
+  <!-- Subtle seam -->
+  <path class="stroke w" d="M14 78 H346" stroke-width="1.5" opacity="0.18"/>
+</svg>

@@ -34,8 +34,22 @@ def outbreak_descriptives(
     - optional country and date summaries if columns are available
     """
 
+    if lin_col not in df.columns:
+        raise ValueError(f"Missing LIN column: {lin_col}")
+
     df = df.copy()
+
+    # Drop rows with missing/invalid LIN codes. Without this, pandas will
+    # stringify missing values (e.g., 'nan') leading to a huge
+    # 'nan_nan_...' prefix cluster that swamps the top-N plot.
+    lin_s = df[lin_col]
+    str_s = lin_s.astype(str).str.strip().str.lower()
+    valid = lin_s.notna() & ~str_s.isin({"nan", "none", "<na>", "na", ""})
+    df = df.loc[valid].copy()
+
     df["lin_cluster"] = df[lin_col].astype(str).map(lambda x: lin_prefix(x, top_threshold))
+    # Remove clusters derived from partially-missing LIN strings (e.g. "nan_nan_...").
+    df = df[~df["lin_cluster"].str.contains(r"\bnan\b", case=False, na=False)]
 
     top = (
         df["lin_cluster"].value_counts(dropna=False)

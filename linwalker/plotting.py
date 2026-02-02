@@ -204,9 +204,37 @@ def plot_stcc_concordance(
     st_col = "st_purity" if "st_purity" in df.columns else "mean_purity_ST"
     cc_col = "cc_purity" if "cc_purity" in df.columns else ("mean_purity_CC" if "mean_purity_CC" in df.columns else None)
 
-    ax.plot(df["lin_level"], df[st_col], linewidth=3, label="ST purity")
-    if cc_col is not None:
-        ax.plot(df["lin_level"], df[cc_col], linewidth=3, label="CC purity")
+    # Matplotlib can't cast pandas.NA (NAType) to float; coerce to numeric so
+    # missing values become NaN.
+    if st_col in df.columns:
+        df[st_col] = pd.to_numeric(df[st_col], errors="coerce")
+    if cc_col and cc_col in df.columns:
+        df[cc_col] = pd.to_numeric(df[cc_col], errors="coerce")
+
+    plotted_any = False
+
+    if st_col in df.columns:
+        d1 = df[["lin_level", st_col]].dropna()
+        if len(d1):
+            ax.plot(d1["lin_level"], d1[st_col], linewidth=3, label="ST purity")
+            plotted_any = True
+
+    if cc_col is not None and cc_col in df.columns:
+        d2 = df[["lin_level", cc_col]].dropna()
+        if len(d2):
+            ax.plot(d2["lin_level"], d2[cc_col], linewidth=3, label="CC purity")
+            plotted_any = True
+
+    if not plotted_any:
+        ax.text(
+            0.5,
+            0.5,
+            "No ST/CC concordance metrics available\n(check ST/CC columns or run prep)",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            fontsize=14,
+        )
 
     ax.set_title(title)
     ax.set_xlabel(f"LIN threshold (1–{max_level})")

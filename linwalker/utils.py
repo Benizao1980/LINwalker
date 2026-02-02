@@ -70,6 +70,14 @@ def lin_prefix(lin: str, level: int) -> str:
 
     # remove empty tokens
     parts = [p for p in parts if p != ""]
+
+    # If LIN strings contain literal missing tokens ("nan", "none"), treat the
+    # whole prefix as invalid so outbreak summaries don't promote them.
+    # We check only the requested prefix parts.
+    bad = {"nan", "none", "null"}
+    for p in parts[:level]:
+        if str(p).strip().lower() in bad:
+            return ""
     if level <= 0:
         return ""
     return "_".join(parts[:level])

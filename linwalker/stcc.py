@@ -8,6 +8,35 @@ import pandas as pd
 from .utils import lin_prefix, parse_thresholds
 
 
+def _infer_column(df: pd.DataFrame, explicit: str, candidates: List[str]) -> str:
+    """Return a usable column name.
+
+    If the requested column isn't present, try common PubMLST-style headers
+    provided in *candidates* (case-insensitive exact match, then substring).
+    Falls back to the original explicit name (so callers can decide how to
+    behave if nothing is found).
+    """
+    if explicit in df.columns:
+        return explicit
+
+    cols = list(df.columns)
+    lower_map = {c.lower(): c for c in cols}
+
+    # 1) exact match (case-insensitive)
+    for cand in candidates:
+        if cand.lower() in lower_map:
+            return lower_map[cand.lower()]
+
+    # 2) substring match (case-insensitive)
+    for cand in candidates:
+        cl = cand.lower()
+        for c in cols:
+            if cl in c.lower():
+                return c
+
+    return explicit
+
+
 @dataclass
 class STCCResult:
     table: pd.DataFrame
@@ -36,6 +65,30 @@ def stcc_concordance(
 
     # Keep only rows with LIN and at least one of ST/CC
     x = df.copy()
+
+    # Try to be forgiving with PubMLST exports where ST/CC headers vary.
+    st_col = _infer_column(
+        x,
+        st_col,
+        candidates=[
+            "ST",
+            "ST (Pasteur)",
+            "Pasteur ST",
+            "MLST ST",
+            "Sequence type",
+        ],
+    )
+    cc_col = _infer_column(
+        x,
+        cc_col,
+        candidates=[
+            "clonal_complex",
+            "clonal complex",
+            "CC",
+            "CC (MLST)",
+            "Clonal complex",
+        ],
+    )
     x = x[x[lin_col].notna()]
 
     records = []
