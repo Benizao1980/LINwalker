@@ -35,128 +35,117 @@ Quantifies how well LIN clusters correspond to MLST sequence types (ST) and clon
    size vs threshold (with optional boxplot+points), a table of the largest clusters
    at a chosen LIN threshold, and optional epi-curve by collection date.
    
-## Getting started (clone → install → run)
+## Quickstart: generic PubMLST Campylobacter walkthrough
 
-```bash
-git clone https://github.com/Benizao1980/LINwalker
-cd LINwalker
-```
+This is an end-to-end run using a **PubMLST isolate export** (TSV/CSV) that includes a LIN code column.
 
-### Install dependencies
-
-**Conda (recommended):**
-```bash
-conda create -n linwalker python=3.11 -y
-conda activate linwalker
-conda install -c conda-forge \
-  numpy \
-  pandas \
-  matplotlib \
-  seaborn \
-  scikit-learn
-```
-
-## Minimal plotting install (no Qt)
-
-If you do not need interactive plotting:
-```bash
-conda install -c conda-forge matplotlib-base
-```
-
-This significantly reduces disk usage.
-
-## Command-line usage
-
-LINwalker ships with a small CLI. Run:
-
-```bash
-python -m linwalker --help
-```
-
-### 1) Prepare a PubMLST export (with source binning)
-
-This step reconstructs a full `LINcode` column and collapses heterogeneous PubMLST `source` labels into stable bins:
-**chicken, ruminant, pig, wild bird, human, other**.
+### 1) Prepare derived tables
 
 ```bash
 python -m linwalker prep \
-  --input PATHSAFE_pubmlst_export.tsv.gz \
-  --outdir linwalker_run_v1_0_4/derived \
-  --prefix PATHSAFE
+  --input your_pubmlst_export.tsv \
+  --outdir results/run_001/prep \
+  --lin-col LINcode \
+  --id-col isolate \
+  --species-col Species \
+  --source-col Source \
+  --country-col Country \
+  --date-col Collection_date
 ```
 
-This produces:
-- `PATHSAFE_LINwalker_min.tsv` (LIN + metadata only)
-- `PATHSAFE_metadata_only.tsv`
-- `PATHSAFE_cgMLST_matrix.tsv.gz` (optional downstream use)
+Outputs:
+- `results/run_001/prep/derived/PATHSAFE_LINwalker_min.tsv` (analysis-ready)
+- `results/run_001/prep/derived/PATHSAFE_metadata_only.tsv` (metadata-only)
 
-To preserve raw sources without binning:
-
-```bash
-python -m linwalker prep \
-  --input PATHSAFE_pubmlst_export.tsv.gz \
-  --outdir linwalker_run_v1_0_4/derived \
-  --prefix PATHSAFE \
-  --no-bin-sources
-```
-
-### 2) Diversification analysis
+### 2) Diversification curves
 
 ```bash
 python -m linwalker diversify \
-  --input linwalker_run_v1_0_4/derived/PATHSAFE_LINwalker_min.tsv \
-  --outdir linwalker_run_v1_0_4/results_diversification
-```
-
-Outputs two versions by default:
-- `diversification.png` / `.svg` Reservoir sources only (default ecological view)
-- `diversification_all_sources.png` / `.svg` Includes human + other (complete epidemiological view)
-
-### 3) Introgression analyses
-
-```bash
-python -m linwalker introgress \
-  --input linwalker_run_v1_0_4/derived/PATHSAFE_LINwalker_min.tsv \
-  --outdir linwalker_run_v1_0_4/results_introgression
-```
-
-Outputs:
-- `mixed_species.png` / `.svg` Proportion of mixed-species LIN clusters vs LIN threshold (1–17)
-- `lsdd_by_source.png / .svg` Distribution of LIN Species Discordance Depth by source
-
-### 4) LIN <> MLST ST / clonal complex concordance
-
-```bash
-python -m linwalker stcc \
-  --input linwalker_run_v1_0_4/derived/PATHSAFE_metadata_only.tsv \
-  --outdir linwalker_run_v1_0_4/results_stcc
-
-```
-
-### 5) Outbreak / public-health summaries
-
-Produces descriptive plots (cluster sizes vs LIN threshold, boxplots+points) and
-tables of the largest LIN clusters at a chosen threshold. If you provide a date
-column, LINwalker can also output a basic epi-curve.
-
-```bash
-python -m linwalker outbreak \
-  --input linwalker_run_v1_0_4/derived/PATHSAFE_LINwalker_min.tsv \
-  --outdir linwalker_run_v1_0_4/results_outbreak \
-  --top-threshold 12 \
-  --top-n 25 \
-  --max-level 17 \
+  --input results/run_001/prep/derived/PATHSAFE_LINwalker_min.tsv \
+  --outdir results/run_001/diversification \
+  --thresholds 1-17 \
   --formats png svg
 ```
 
-Outputs:
-- `cluster_size_summary.*` median/IQR per-isolate cluster size vs LIN threshold
-- `cluster_size_boxplot.*` boxplot + per-isolate jitter for cluster sizes
-- `cluster_levels_summary.tsv` summary statistics per LIN level
-- `top_clusters_t{threshold}.tsv` largest clusters at the chosen threshold
-- `epi_curve_*.*` if you provide a `--date-col`
+Outputs (stable structure):
+- `results/run_001/diversification/plots/`
+- `results/run_001/diversification/tables/`
+- `results/run_001/diversification/logs/`
 
-> Note: `stcc` expects columns named `ST (MLST)` and `clonal_complex (MLST)` if you feed it the `prep` output.
+Key plots:
+- `diversification.svg` / `.png` (reservoir sources only)
+- `diversification_all_sources.svg` / `.png` (includes human + other)
+
+Rarefaction (sample-size normalisation):
+LIN diversity curves can be strongly affected by uneven sampling (e.g. many more
+human isolates than any single reservoir). By default, LINwalker also produces
+rarefied curves that downsample each source to an equal n per source (n = the
+minimum source size among the plotted groups), repeating subsampling many times
+and plotting the mean ± SD:
+- `diversification_rarefied.svg` / `.png`
+- `diversification_all_sources_rarefied.svg` / `.png`
+
+You can disable rarefaction with `--no-rarefy`.
+
+### 3) Introgression summaries (mixed species + LSDD)
+
+```bash
+python -m linwalker introgress \
+  --input results/run_001/prep/derived/PATHSAFE_LINwalker_min.tsv \
+  --outdir results/run_001/introgression \
+  --thresholds 1-17 \
+  --formats png svg
+```
+
+### 4) Relate LIN thresholds to ST / CC
+
+```bash
+python -m linwalker stcc \
+  --input results/run_001/prep/derived/PATHSAFE_metadata_only.tsv \
+  --outdir results/run_001/stcc \
+  --thresholds 1-17 \
+  --formats png svg
+```
+
+### 5) Outbreak / public health descriptives
+
+```bash
+python -m linwalker outbreak \
+  --input results/run_001/prep/derived/PATHSAFE_LINwalker_min.tsv \
+  --outdir results/run_001/outbreak \
+  --thresholds 1-17 \
+  --top-threshold 12 \
+  --top-n 25 \
+  --formats png svg
+```
+
+### 6) Tree colouring metadata (Microreact/iTOL)
+
+```bash
+python -m linwalker tree \
+  --input results/run_001/prep/derived/PATHSAFE_LINwalker_min.tsv \
+  --outdir results/run_001/tree \
+  --threshold 12
+```
+
+This writes metadata you can join to an existing tree.
+
+## Output structure (stable)
+
+Every module writes to:
+
+```
+<outdir>/plots/
+<outdir>/tables/
+<outdir>/logs/
+```
+
+## Help
+
+```bash
+python -m linwalker --help
+python -m linwalker diversify --help
+```
 
 Or just run everything using: 
 
