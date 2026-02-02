@@ -8,7 +8,7 @@ from typing import List
 import pandas as pd
 
 from . import __version__
-from .diversification import lin_diversification
+from .diversification import lin_diversification, lin_diversification_rarefied
 from .introgression import mixed_species_fraction, lsdd_by_level
 from .stcc import stcc_concordance
 from .outbreak import outbreak_descriptives
@@ -166,6 +166,72 @@ def cmd_diversify(args: argparse.Namespace) -> None:
         formats=args.formats,
         title=(args.title + " (all sources)") if args.title else "Diversification (all sources)",
     )
+
+    # Rarefaction: normalise sample size per source to reduce sampling bias.
+    if not args.no_rarefy:
+        def _min_n(tbl, sources):
+            sub = tbl[tbl["source"].isin(sources)]["source"].value_counts()
+            if sub.empty:
+                return None
+            return int(sub.min())
+
+        # Reservoir-only (default ecological view)
+        if args.rarefy_n is not None:
+            n_res = args.rarefy_n
+        else:
+            n_res = _min_n(df, reservoir)
+        if n_res is not None and n_res >= 2:
+            rare_res = lin_diversification_rarefied(
+                df[df[args.group_col].isin(reservoir)].copy(),
+                lin_col=args.lin_col,
+                group_col=args.group_col,
+                thresholds=args.thresholds,
+                max_level=args.max_level,
+                n_per_group=n_res,
+                n_reps=args.rarefy_reps,
+                seed=args.rarefy_seed,
+            )
+            rare_res.table.to_csv(tables / "diversification_rarefied.tsv", sep="\t", index=False)
+            plot_diversification_curve(
+                rare_res.table,
+                outdir=plots,
+                filename="diversification_rarefied",
+                formats=args.formats,
+                title=(
+                    (args.title + f" (rarefied; n={n_res}, reps={args.rarefy_reps})")
+                    if args.title
+                    else f"Diversification (rarefied; n={n_res}, reps={args.rarefy_reps})"
+                ),
+            )
+
+        # All sources (epidemiological view)
+        if args.rarefy_n is not None:
+            n_all = args.rarefy_n
+        else:
+            n_all = _min_n(df, df[args.group_col].dropna().unique())
+        if n_all is not None and n_all >= 2:
+            rare_all = lin_diversification_rarefied(
+                df,
+                lin_col=args.lin_col,
+                group_col=args.group_col,
+                thresholds=args.thresholds,
+                max_level=args.max_level,
+                n_per_group=n_all,
+                n_reps=args.rarefy_reps,
+                seed=args.rarefy_seed,
+            )
+            rare_all.table.to_csv(tables / "diversification_all_sources_rarefied.tsv", sep="\t", index=False)
+            plot_diversification_curve(
+                rare_all.table,
+                outdir=plots,
+                filename="diversification_all_sources_rarefied",
+                formats=args.formats,
+                title=(
+                    (args.title + f" (all sources; rarefied; n={n_all}, reps={args.rarefy_reps})")
+                    if args.title
+                    else f"Diversification (all sources; rarefied; n={n_all}, reps={args.rarefy_reps})"
+                ),
+            )
 
     logging.info("[LINwalker] Wrote diversification outputs to: %s", outdir)
 
@@ -381,6 +447,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-level", type=int, default=17)
     p.add_argument("--formats", nargs="+", default=["png", "svg"], help="Output image formats")
     p.add_argument("--title", default=None)
+    # Rarefaction (sample-size normalisation)
+    p.add_argument("--no-rarefy", action="store_true", help="Disable rarefaction curves")
+    p.add_argument("--rarefy-reps", type=int, default=100, help="Rarefaction replicates")
+    p.add_argument("--rarefy-seed", type=int, default=13, help="Random seed for rarefaction")
+    p.add_argument(
+        "--rarefy-n",
+        type=int,
+        default=None,
+        help="Rarefaction depth (n per group). Default=min group size in plotted set",
+    )
     p.set_defaults(func=cmd_diversify)
 
     # introgress

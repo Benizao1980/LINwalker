@@ -15,6 +15,12 @@ The format is based on *Keep a Changelog*, and this project follows *Semantic Ve
 - **stcc:** Auto-detect common PubMLST ST / clonal complex column headers when the default names aren't present.
 - **outbreak:** Exclude prefixes containing literal missing tokens (e.g. `nan_nan_...`) even when they appear as strings.
 
+## 1.0.18
+### Added
+- **diversify:** Rarefied diversification curves (sample-size normalisation) for reservoir-only and all-sources outputs.
+### Changed
+- **diversify:** X-axis tick labels simplified to show only LIN thresholds 1, 5, 10, and 15.
+
 ## 1.0.15
 ### Added
 - Restored full CLI command set: `prep`, `diversify`, `introgress`, `stcc`, `tree`, `outbreak`.

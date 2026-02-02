@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use LINwalker, please cite it as below."
 title: "LINwalker"
-version: 1.0.14
+version: 1.0.18
 authors:
   - family-names: "Pascoe"
     given-names: "Ben"

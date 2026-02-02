@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional
 
+import numpy as np
 import pandas as pd
 
 from .utils import lin_prefix, parse_thresholds
@@ -116,10 +117,10 @@ def stcc_concordance(
             "lin_level": k,
             "n_isolates": int(len(tmp)),
             "n_lin_clusters": int(tmp["lin_prefix"].nunique()),
-            "n_ST": int(tmp[st_col].nunique()) if st_col in tmp.columns else pd.NA,
-            "n_CC": int(tmp[cc_col].nunique()) if cc_col in tmp.columns else pd.NA,
-            "mean_purity_ST": float(st_purity) if st_purity is not None else pd.NA,
-            "mean_purity_CC": float(cc_purity) if cc_purity is not None else pd.NA,
+            "n_ST": int(tmp[st_col].nunique()) if st_col in tmp.columns else np.nan,
+            "n_CC": int(tmp[cc_col].nunique()) if cc_col in tmp.columns else np.nan,
+            "mean_purity_ST": float(st_purity) if st_purity is not None else np.nan,
+            "mean_purity_CC": float(cc_purity) if cc_purity is not None else np.nan,
         }
         records.append(rec)
 

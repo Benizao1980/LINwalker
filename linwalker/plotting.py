@@ -68,9 +68,18 @@ def plot_diversification_curve(
     fig = plt.figure(figsize=(11, 7))
     ax = fig.add_subplot(111)
 
+    # Support both raw (n_unique) and rarefied (n_unique_mean +/- n_unique_sd) tables.
+    ycol = "n_unique" if "n_unique" in df.columns else "n_unique_mean"
+    sdcol = "n_unique_sd" if "n_unique_sd" in df.columns else None
+
     for src, sub in df.groupby("source"):
         sub = sub.sort_values("lin_level")
-        ax.plot(sub["lin_level"], sub["n_unique"], linewidth=3, label=src, color=palette.get(src, None))
+        color = palette.get(src, None)
+        ax.plot(sub["lin_level"], sub[ycol], linewidth=3, label=src, color=color)
+        if sdcol is not None:
+            y = pd.to_numeric(sub[ycol], errors="coerce")
+            sd = pd.to_numeric(sub[sdcol], errors="coerce")
+            ax.fill_between(sub["lin_level"], y - sd, y + sd, alpha=0.12, color=color)
 
     ax.set_title(title)
     ax.set_xlabel(f"LIN threshold (1–{max_level})")
@@ -263,6 +272,10 @@ def plot_outbreak_top_clusters(
     outbase = _resolve_outbase(outpath_base=outpath_base, outdir=outdir, filename=filename)
 
     df = top_clusters.copy()
+    # Defensive cleanup: drop clusters that look like missing LIN (nan/NA artefacts)
+    if "lin_prefix" in df.columns:
+        bad = df["lin_prefix"].astype(str).str.contains("nan", case=False, na=False)
+        df = df[~bad].copy()
     if df.empty:
         return
 
