@@ -226,6 +226,8 @@ def place_profiles(
     reference_id_col: str = "pubmlst_id",
     lin_col: str = "LINcode_v2",
     cgst_col: str = "cgST_v2",
+    st_col: str = "ST",
+    cc_col: str = "clonal_complex",
     query_prefix: str | None = None,
     thresholds: Sequence[int] = CAMPY_V2_LIN_DIFF_THRESHOLDS,
     cgc_thresholds: Sequence[int] = CAMPY_V2_CGC_THRESHOLDS,
@@ -309,11 +311,29 @@ def place_profiles(
         nearest_lins = sorted(
             set(x for x in nearest_meta[lin_col].astype(str) if x and x.lower() != "nan")
         )
-        nearest_cgsts = []
-        if cgst_col in nearest_meta.columns:
-            nearest_cgsts = sorted(
-                set(x for x in nearest_meta[cgst_col].astype(str) if x and x.lower() != "nan")
+        def _clean_unique(col: str) -> list[str]:
+            if col not in nearest_meta.columns:
+                return []
+            return sorted(
+                set(
+                    x for x in nearest_meta[col].astype(str)
+                    if x.strip() and x.strip().lower() not in {"nan", "none", "na"}
+                )
             )
+
+        nearest_cgsts = _clean_unique(cgst_col)
+        nearest_sts = _clean_unique(st_col)
+        nearest_ccs = _clean_unique(cc_col)
+
+        complete_exact = bool(
+            (nearest["raw_AD"] == 0).all()
+            and (nearest["missing_in_either"] == 0).all()
+        )
+        exact_cgst = (
+            nearest_cgsts[0]
+            if complete_exact and len(nearest_cgsts) == 1
+            else ""
+        )
 
         deepest_level = 0
         deepest_threshold = None
@@ -409,7 +429,10 @@ def place_profiles(
                 "nearest_raw_AD": ";".join(str(x) for x in nearest["raw_AD"].tolist()),
                 "nearest_normalised_AD": min_ad,
                 "nearest_shared_loci": ";".join(str(x) for x in nearest["shared_loci"].tolist()),
+                "nearest_ST": ";".join(nearest_sts),
+                "nearest_clonal_complex": ";".join(nearest_ccs),
                 "nearest_cgST": ";".join(nearest_cgsts),
+                "exact_official_cgST": exact_cgst,
                 "nearest_official_LINcode": ";".join(nearest_lins),
                 "deepest_supported_LIN_level": deepest_level if deepest_level else "",
                 "deepest_supported_difference_threshold": (
@@ -419,7 +442,13 @@ def place_profiles(
                 "LIN_support_n": deepest_support_n,
                 "LIN_support_prop": deepest_prop,
                 "ambiguous_at_finer_level": "Yes" if ambiguous_finer else "No",
-                "placement_status": "SUPPORTED_PREFIX" if deepest_prefix else "UNRESOLVED",
+                "placement_status": (
+                    "EXACT_REFERENCE_PROFILE"
+                    if complete_exact
+                    else "SUPPORTED_PREFIX"
+                    if deepest_prefix
+                    else "UNRESOLVED"
+                ),
                 **cgc_values,
             }
         )
@@ -443,6 +472,8 @@ def place_from_files(
     reference_id_col: str = "pubmlst_id",
     lin_col: str = "LINcode_v2",
     cgst_col: str = "cgST_v2",
+    st_col: str = "ST",
+    cc_col: str = "clonal_complex",
     query_prefix: str | None = None,
     thresholds: Sequence[int] = CAMPY_V2_LIN_DIFF_THRESHOLDS,
     min_support: int = 1,
@@ -461,6 +492,8 @@ def place_from_files(
         reference_id_col=reference_id_col,
         lin_col=lin_col,
         cgst_col=cgst_col,
+        st_col=st_col,
+        cc_col=cc_col,
         query_prefix=query_prefix,
         thresholds=thresholds,
         min_support=min_support,
