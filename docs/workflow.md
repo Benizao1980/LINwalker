@@ -7,11 +7,12 @@ It is suitable for inclusion in the GitHub wiki.
 
 ## 0. Overview
 
-LINwalker provides three related analyses:
+LINwalker provides four related analysis modes:
 
 1. **Diversification by scale**: unique LIN IDs vs LIN threshold (host-associated structure).
 2. **Mixed-species LINs**: fraction of LIN clusters containing >1 species vs threshold (introgression signal).
 3. **LSDD**: per-isolate **LIN Species Discordance Depth** (earliest LIN level where a lineage majority differs from isolate species).
+4. **Reference placement**: place uploaded cgMLST profiles relative to official PubMLST LIN-coded references without inventing new official nomenclature.
 
 ---
 
@@ -26,7 +27,7 @@ Recommended minimum fields (Provenance):
 
 Typing schemes:
 - C. jejuni / C. coli cgMLST v2 (for LINcode)
-- Select **all LIN code prefixes** (17/17) OR include full LINcode field
+- Select **all LIN code prefixes** (18/18 for current Campylobacter cgMLST v2) OR include the full LINcode field
 - (Optional) Export CAMP loci allele numbers if you want the cgMLST matrix for ML workflows
 
 If you export CAMP loci, PubMLST output will be very wide; LINwalker can split it into smaller tables.
@@ -93,7 +94,36 @@ Interpretation:
 
 ---
 
-## 6. Downstream integration
+## 6. Reference-anchored placement
+
+When new genomes are analysed with PubMLST Genome Comparator, LINwalker can parse
+the `all` worksheet and place uploaded profiles against database isolates with
+official LINcodes.
+
+```bash
+python -m linwalker place \
+  --profiles genome_comparator.xlsx \
+  --reference-metadata pubmlst_reference_metadata.tsv \
+  --reference-id-col pubmlst_id \
+  --lin-col LINcode_v2 \
+  --cgst-col cgST_v2 \
+  --query-prefix AZE_ \
+  --outdir results/placement
+```
+
+For current *Campylobacter* cgMLST v2, the default difference thresholds are:
+
+```text
+1119,1085,982,914,857,680,445,343,183,86,43,10,7,5,3,2,1,0
+```
+
+The placement output is deliberately conservative. It reports nearest official
+reference genomes, supported LIN prefixes and compatible cgc2 groups. It does not
+mint official cgST or LINcode identifiers for novel profiles.
+
+---
+
+## 7. Downstream integration
 
 LINwalker outputs can be joined back to your metadata (or trees) by `id` / `isolate` and used to:
 - justify attribution-relevant LIN thresholds
