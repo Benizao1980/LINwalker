@@ -21,7 +21,7 @@ def mixed_species_fraction(
     lin_col: str = "lin_code",
     species_col: str = "species",
     thresholds: Optional[str] = None,
-    max_level: int = 17,
+    max_level: int = 18,
 ) -> pd.DataFrame:
     """Compute fraction of LIN prefixes that contain >1 species at each LIN level."""
     ks = parse_thresholds(thresholds, max_level)
@@ -43,7 +43,7 @@ def lsdd_by_level(
     lin_col: str = "lin_code",
     species_col: str = "species",
     thresholds: Optional[str] = None,
-    max_level: int = 17,
+    max_level: int = 18,
 ) -> pd.DataFrame:
     """A simple lineage-specific divergence density (LSDD)-like summary.
 
