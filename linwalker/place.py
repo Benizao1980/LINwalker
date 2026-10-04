@@ -452,7 +452,7 @@ def place_profiles(
                 "nearest_ST": ";".join(nearest_sts),
                 "nearest_clonal_complex": ";".join(nearest_ccs),
                 "nearest_cgST": ";".join(nearest_cgsts),
-                "exact_official_cgST": exact_cgst,
+                "exact_reference_cgST": exact_cgst,
                 "nearest_official_LINcode": ";".join(nearest_lins),
                 "deepest_supported_LIN_level": deepest_level if deepest_level else "",
                 "deepest_supported_difference_threshold": (
@@ -463,7 +463,7 @@ def place_profiles(
                 "LIN_support_prop": deepest_prop,
                 "ambiguous_at_finer_level": "Yes" if ambiguous_finer else "No",
                 "placement_status": (
-                    "EXACT_REFERENCE_PROFILE"
+                    "EXACT_REFERENCE_GENOME"
                     if complete_exact
                     else "SUPPORTED_PREFIX"
                     if deepest_prefix
