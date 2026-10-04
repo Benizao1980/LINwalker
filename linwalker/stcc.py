@@ -50,7 +50,7 @@ def stcc_concordance(
     st_col: str = "ST",
     cc_col: str = "clonal_complex",
     thresholds: Optional[str] = None,
-    max_level: int = 17,
+    max_level: int = 18,
 ) -> STCCResult:
     """At each LIN level, how well do LIN clusters correspond to ST / CC?
 
