@@ -145,6 +145,24 @@ def _label_tokens(label: str) -> set[str]:
     return tokens
 
 
+def _query_analysis_id(label: str, query_prefix: str | None) -> str:
+    """Extract a stable uploaded-genome identifier from a Genome Comparator label."""
+    if not query_prefix:
+        return str(label)
+    candidates = sorted(
+        (x for x in _label_tokens(str(label)) if str(x).startswith(query_prefix)),
+        key=lambda x: (len(x), x),
+    )
+    if not candidates:
+        return str(label)
+    value = candidates[0]
+    for suffix in (".fasta.gz", ".fa.gz", ".fna.gz", ".fasta", ".fna", ".fa"):
+        if value.endswith(suffix):
+            value = value[: -len(suffix)]
+            break
+    return value
+
+
 def match_reference_labels(
     profile_labels: Iterable[str],
     reference_metadata: pd.DataFrame,
@@ -267,7 +285,8 @@ def place_profiles(
     if query_prefix:
         query_labels = [
             x for x in profiles.index
-            if str(x).startswith(query_prefix) and x not in mapping
+            if x not in mapping
+            and any(str(tok).startswith(query_prefix) for tok in _label_tokens(str(x)))
         ]
     else:
         query_labels = [x for x in profiles.index if x not in mapping]
@@ -425,6 +444,7 @@ def place_profiles(
         summary_rows.append(
             {
                 "query_id": qid,
+                "query_analysis_id": _query_analysis_id(qid, query_prefix),
                 "nearest_reference_id": ";".join(nearest_ids),
                 "nearest_raw_AD": ";".join(str(x) for x in nearest["raw_AD"].tolist()),
                 "nearest_normalised_AD": min_ad,
