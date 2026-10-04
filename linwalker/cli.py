@@ -509,7 +509,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--lin-col", default="lin_code")
     p.add_argument("--species-col", default="species")
     p.add_argument("--thresholds", default=None)
-    p.add_argument("--max-level", type=int, default=17)
+    p.add_argument("--max-level", type=int, default=None, help="Maximum LIN level (default: infer from LINcodes)")
     p.add_argument("--formats", nargs="+", default=["png", "svg"])
     p.add_argument("--title-mixed", default=None)
     p.add_argument("--title-lsdd", default=None)
@@ -523,7 +523,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--st-col", default="ST")
     p.add_argument("--cc-col", default="clonal_complex")
     p.add_argument("--thresholds", default=None)
-    p.add_argument("--max-level", type=int, default=17)
+    p.add_argument("--max-level", type=int, default=None, help="Maximum LIN level (default: infer from LINcodes)")
     p.add_argument("--formats", nargs="+", default=["png", "svg"])
     p.add_argument("--title", default=None)
     p.set_defaults(func=cmd_stcc)
@@ -579,13 +579,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--top-threshold", type=int, default=12)
     p.add_argument(
         "--thresholds",
-        default="1-17",
-        help="Threshold range/string for plotting (accepted for compatibility; default 1-17)",
+        default="1-18",
+        help="Threshold range/string for plotting (accepted for compatibility; default 1-18)",
     )
     p.add_argument(
         "--max-level",
         type=int,
-        default=17,
+        default=18,
         help="Maximum LIN level to consider for plotting",
     )
     p.add_argument("--formats", nargs="+", default=["png", "svg"])
