@@ -113,3 +113,28 @@ def resolve_column(df, preferred: str | None, candidates: list[str]) -> str | No
         if c in df.columns:
             return c
     return None
+
+
+def infer_lin_levels(values, fallback: int = 18) -> int:
+    """Infer the maximum LIN depth from a Series/iterable of LIN codes.
+
+    Current Campylobacter cgMLST-v2 LINcodes contain 18 components, but
+    LINwalker remains generic and will use the maximum valid depth observed.
+    """
+    max_level = 0
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if not text or text.lower() in {"nan", "none", "null", "na", "<na>"}:
+            continue
+        if "_" in text:
+            parts = [x for x in text.split("_") if x != ""]
+        elif "." in text:
+            parts = [x for x in text.split(".") if x != ""]
+        else:
+            parts = [x for x in re.split(r"\s+", text) if x]
+        if any(str(x).strip().lower() in {"nan", "none", "null"} for x in parts):
+            continue
+        max_level = max(max_level, len(parts))
+    return max_level or int(fallback)
