@@ -36,7 +36,7 @@ def lin_diversification(
     lin_col: str = "lin_code",
     group_col: str = "source",
     thresholds: Optional[str] = None,
-    max_level: int = 17,
+    max_level: int = 18,
 ) -> DiversificationResult:
     """Compute number of unique LIN prefixes per LIN level, optionally per group."""
 
@@ -96,8 +96,8 @@ def lin_diversification_rarefied(
     df: pd.DataFrame,
     lin_col: str = "LINcode",
     group_col: str = "source",
-    thresholds: str = "1-17",
-    max_level: int = 17,
+    thresholds: str = "1-18",
+    max_level: int = 18,
     n_per_group: Optional[int] = None,
     n_reps: int = 100,
     seed: int = 123,
