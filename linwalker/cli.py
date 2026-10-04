@@ -79,7 +79,7 @@ def cmd_prep(args: argparse.Namespace) -> None:
         cc_col=args.cc_col,
         country_col=args.country_col,
         date_col=args.date_col,
-        keep_cgmlst_matrix=args.keep_cgmlst_matrix,
+        keep_cgmlst_matrix=not args.no_cgmlst_matrix,
     )
 
     logging.info(f"Wrote prep outputs to: {derived}")
@@ -478,6 +478,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--cc-col", default="clonal_complex")
     p.add_argument("--country-col", default="country")
     p.add_argument("--date-col", default="date")
+    p.add_argument("--no-cgmlst-matrix", action="store_true", help="Do not export CAMP-locus matrix if present")
     p.set_defaults(func=cmd_prep)
 
     # diversify
