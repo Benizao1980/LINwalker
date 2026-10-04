@@ -107,8 +107,8 @@ def test_exact_reference_profile_reports_official_cgst_and_context():
     )
 
     row = result.summary.iloc[0]
-    assert row["placement_status"] == "EXACT_REFERENCE_PROFILE"
-    assert row["exact_official_cgST"] == "72756"
+    assert row["placement_status"] == "EXACT_REFERENCE_GENOME"
+    assert row["exact_reference_cgST"] == "72756"
     assert row["nearest_ST"] == "10042"
     assert row["nearest_clonal_complex"] == "ST-828 complex"
     assert float(row["nearest_normalised_AD"]) == 0.0
