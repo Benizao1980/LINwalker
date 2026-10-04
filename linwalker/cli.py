@@ -434,6 +434,8 @@ def cmd_place(args: argparse.Namespace) -> None:
         reference_id_col=args.reference_id_col,
         lin_col=args.lin_col,
         cgst_col=args.cgst_col,
+        st_col=args.st_col,
+        cc_col=args.cc_col,
         query_prefix=args.query_prefix,
         thresholds=thresholds,
         min_support=args.min_support,
@@ -545,6 +547,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--reference-id-col", default="pubmlst_id")
     p.add_argument("--lin-col", default="LINcode_v2")
     p.add_argument("--cgst-col", default="cgST_v2")
+    p.add_argument("--st-col", default="ST", help="Reference ST column (context only; not inferred)")
+    p.add_argument("--cc-col", default="clonal_complex", help="Reference CC column (context only; not inferred)")
     p.add_argument("--query-prefix", default=None, help="Optional prefix selecting query genomes (e.g. AZE_)")
     p.add_argument(
         "--threshold-diffs",
