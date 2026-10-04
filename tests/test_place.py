@@ -78,3 +78,37 @@ def test_missing_loci_are_normalised_like_bigsdb():
     assert pair["raw_AD"] == 1
     assert pair["shared_loci"] == 3
     assert abs(pair["normalised_AD"] - (4 / 3)) < 1e-9
+
+
+def test_exact_reference_profile_reports_official_cgst_and_context():
+    profiles = pd.DataFrame(
+        {
+            "CAMP0001": ["1", "1"],
+            "CAMP0002": ["2", "2"],
+            "CAMP0003": ["3", "3"],
+        },
+        index=["100", "AZE_EXACT"],
+    )
+    refs = pd.DataFrame(
+        {
+            "pubmlst_id": ["100"],
+            "LINcode_v2": ["0_2_0"],
+            "cgST_v2": ["72756"],
+            "ST": ["10042"],
+            "clonal_complex": ["ST-828 complex"],
+        }
+    )
+
+    result = place_profiles(
+        profiles,
+        refs,
+        thresholds=[2, 1, 0],
+        query_prefix="AZE_",
+    )
+
+    row = result.summary.iloc[0]
+    assert row["placement_status"] == "EXACT_REFERENCE_PROFILE"
+    assert row["exact_official_cgST"] == "72756"
+    assert row["nearest_ST"] == "10042"
+    assert row["nearest_clonal_complex"] == "ST-828 complex"
+    assert float(row["nearest_normalised_AD"]) == 0.0
