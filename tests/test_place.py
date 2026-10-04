@@ -112,3 +112,33 @@ def test_exact_reference_profile_reports_official_cgst_and_context():
     assert row["nearest_ST"] == "10042"
     assert row["nearest_clonal_complex"] == "ST-828 complex"
     assert float(row["nearest_normalised_AD"]) == 0.0
+
+
+def test_genome_comparator_user_label_query_prefix():
+    profiles = pd.DataFrame(
+        {
+            "CAMP0001": ["1", "1"],
+            "CAMP0002": ["1", "2"],
+        },
+        index=["119231|UK-7", "u1 (AZE_PT-5.fasta)"],
+    )
+    refs = pd.DataFrame(
+        {
+            "pubmlst_id": ["119231"],
+            "LINcode_v2": ["0_2"],
+            "cgST_v2": ["72756"],
+            "ST": ["10042"],
+        }
+    )
+
+    result = place_profiles(
+        profiles,
+        refs,
+        thresholds=[1, 0],
+        query_prefix="AZE_",
+    )
+
+    row = result.summary.iloc[0]
+    assert row["query_id"] == "u1 (AZE_PT-5.fasta)"
+    assert row["query_analysis_id"] == "AZE_PT-5"
+    assert row["nearest_reference_id"] == "119231"
