@@ -58,7 +58,7 @@ def plot_diversification_curve(
     df = df.dropna(subset=["lin_level"])
 
     if max_level is None:
-        max_level = int(df["lin_level"].max()) if len(df) else 17
+        max_level = int(df["lin_level"].max()) if len(df) else 18
 
     if include_sources is not None:
         df = df[df["source"].isin(include_sources)].copy()
@@ -124,7 +124,7 @@ def plot_mixed_species(
     df = df.dropna(subset=["lin_level"])
 
     if max_level is None:
-        max_level = int(df["lin_level"].max()) if len(df) else 17
+        max_level = int(df["lin_level"].max()) if len(df) else 18
 
     fig = plt.figure(figsize=(11, 7))
     ax = fig.add_subplot(111)
@@ -164,7 +164,7 @@ def plot_lsdd(
     df = df.dropna(subset=["lin_level"])
 
     if max_level is None:
-        max_level = int(df["lin_level"].max()) if len(df) else 17
+        max_level = int(df["lin_level"].max()) if len(df) else 18
 
     fig = plt.figure(figsize=(11, 7))
     ax = fig.add_subplot(111)
@@ -204,7 +204,7 @@ def plot_stcc_concordance(
     df = df.dropna(subset=["lin_level"])
 
     if max_level is None:
-        max_level = int(df["lin_level"].max()) if len(df) else 17
+        max_level = int(df["lin_level"].max()) if len(df) else 18
 
     fig = plt.figure(figsize=(11, 7))
     ax = fig.add_subplot(111)
