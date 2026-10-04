@@ -7,6 +7,8 @@ The format is based on *Keep a Changelog*, and this project follows *Semantic Ve
 ## 1.1.0
 ### Added
 - **place:** reference-anchored placement of uploaded/unlabelled cgMLST profiles against official LIN-coded PubMLST genomes.
+- Nearest-reference ST and clonal-complex context, plus exact official cgST reporting only for complete zero-distance reference-profile matches.
+- Robust parsing of BIGSdb Genome Comparator uploaded-genome labels (`uN (...)`) back to stable query IDs.
 - Direct parsing of PubMLST Genome Comparator Excel `all` worksheets.
 - BIGSdb-style normalisation of allele differences when loci are missing in either genome.
 - Conservative LIN-prefix placement using configurable support/proportion thresholds.
