@@ -53,7 +53,7 @@ python -m linwalker prep \
   --input your_pubmlst_export.tsv \
   --outdir results/run_001/prep \
   --lin-col LINcode \
-  --id-col isolate \
+  --sample-col isolate \
   --species-col Species \
   --source-col Source \
   --country-col Country \
@@ -61,8 +61,8 @@ python -m linwalker prep \
 ```
 
 Outputs:
-- `results/run_001/prep/derived/PATHSAFE_LINwalker_min.tsv` (analysis-ready)
-- `results/run_001/prep/derived/PATHSAFE_metadata_only.tsv` (metadata-only)
+- `results/run_001/prep/derived/RUN_LINwalker_min.tsv` (analysis-ready)
+- `results/run_001/prep/derived/RUN_metadata_only.tsv` (metadata-only)
 
 ### 2) Diversification curves
 
