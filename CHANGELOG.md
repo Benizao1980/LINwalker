@@ -4,6 +4,23 @@ All notable changes to **LINwalker** will be documented in this file.
 
 The format is based on *Keep a Changelog*, and this project follows *Semantic Versioning*.
 
+## 1.1.0
+### Added
+- **place:** reference-anchored placement of uploaded/unlabelled cgMLST profiles against official LIN-coded PubMLST genomes.
+- Direct parsing of PubMLST Genome Comparator Excel `all` worksheets.
+- BIGSdb-style normalisation of allele differences when loci are missing in either genome.
+- Conservative LIN-prefix placement using configurable support/proportion thresholds.
+- Conservative `Cjc_cgc2_200/100/50/25/10/5` placement where labelled reference groups are available.
+- Pairwise, threshold-by-threshold, cgc2 and reference-label audit tables.
+- Tests for current 18-level Campylobacter cgMLST-v2 LINcodes and missing-locus normalisation.
+
+### Changed
+- CLI LIN depth can now be inferred from the supplied LINcodes instead of assuming 17 levels.
+- Current Campylobacter cgMLST-v2 worked examples use the 18-component LIN hierarchy.
+
+### Interpretation
+- `place` does **not** create official PubMLST cgSTs or LINcodes. It reports nearest official anchors and conservative supported placement within the existing PubMLST hierarchy.
+
 ## 1.0.16
 ### Fixed
 - **stcc:** Coerce purity columns to numeric before plotting, preventing matplotlib crashes on `pandas.NA`/`NAType`.
