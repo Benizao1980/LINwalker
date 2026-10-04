@@ -16,10 +16,10 @@ The package was developed and tested using Campylobacter jejuni / coli cgMLST da
 
 ## What it does
 
-LINwalker provides five core analyses:
+LINwalker provides six core analyses:
 
 1. **Diversification by scale**
-How the number of unique LIN clusters grows as LIN resolution increases (thresholds 1–17), stratified by source.
+How the number of unique LIN clusters grows as LIN resolution increases, stratified by source. LIN depth is inferred from the data; current *Campylobacter* cgMLST-v2 LINcodes contain 18 components.
 
 2. **Mixed-species LIN clusters**
 Proportion of LIN clusters that contain more than one species at each LIN threshold — a scale-aware introgression signal.
@@ -34,6 +34,13 @@ Quantifies how well LIN clusters correspond to MLST sequence types (ST) and clon
    Descriptive outputs to support outbreak-style exploration: per-isolate LIN cluster
    size vs threshold (with optional boxplot+points), a table of the largest clusters
    at a chosen LIN threshold, and optional epi-curve by collection date.
+
+6. **Reference-anchored placement**
+Place uploaded or otherwise unlabelled cgMLST profiles relative to official PubMLST
+reference genomes. The `place` command reports nearest cgST/LIN-coded anchors,
+BIGSdb-style normalised allele distance, the deepest conservatively supported LIN
+prefix, and supported/ambiguous `Cjc_cgc2_*` groups. It does **not** create
+official PubMLST cgSTs or LINcodes.
    
 ## Quickstart: generic PubMLST Campylobacter walkthrough
 
@@ -63,7 +70,7 @@ Outputs:
 python -m linwalker diversify \
   --input results/run_001/prep/derived/PATHSAFE_LINwalker_min.tsv \
   --outdir results/run_001/diversification \
-  --thresholds 1-17 \
+  --thresholds 1-18 \
   --formats png svg
 ```
 
@@ -93,7 +100,7 @@ You can disable rarefaction with `--no-rarefy`.
 python -m linwalker introgress \
   --input results/run_001/prep/derived/PATHSAFE_LINwalker_min.tsv \
   --outdir results/run_001/introgression \
-  --thresholds 1-17 \
+  --thresholds 1-18 \
   --formats png svg
 ```
 
@@ -103,7 +110,7 @@ python -m linwalker introgress \
 python -m linwalker stcc \
   --input results/run_001/prep/derived/PATHSAFE_metadata_only.tsv \
   --outdir results/run_001/stcc \
-  --thresholds 1-17 \
+  --thresholds 1-18 \
   --formats png svg
 ```
 
@@ -113,7 +120,7 @@ python -m linwalker stcc \
 python -m linwalker outbreak \
   --input results/run_001/prep/derived/PATHSAFE_LINwalker_min.tsv \
   --outdir results/run_001/outbreak \
-  --thresholds 1-17 \
+  --thresholds 1-18 \
   --top-threshold 12 \
   --top-n 25 \
   --formats png svg
@@ -129,6 +136,48 @@ python -m linwalker tree \
 ```
 
 This writes metadata you can join to an existing tree.
+
+
+### 7) Place uploaded genomes against PubMLST LIN-coded references
+
+For current *Campylobacter* cgMLST-v2 work, LINwalker can consume the Excel output
+from **PubMLST Genome Comparator** directly. The reference metadata table should
+contain the database identifiers plus official `LINcode_v2`, `cgST_v2`, and any
+`Cjc_cgc2_*` columns you want to propagate conservatively.
+
+```bash
+python -m linwalker place \
+  --profiles genome_comparator.xlsx \
+  --reference-metadata current_pubmlst_references.tsv \
+  --reference-id-col pubmlst_id \
+  --lin-col LINcode_v2 \
+  --cgst-col cgST_v2 \
+  --query-prefix AZE_ \
+  --outdir results/placement
+```
+
+Current *Campylobacter* v2 LIN difference thresholds are used by default:
+
+```text
+1119,1085,982,914,857,680,445,343,183,86,43,10,7,5,3,2,1,0
+```
+
+The main outputs are:
+
+- `placement_summary.tsv` — nearest official reference(s), allele distance,
+  deepest supported LIN prefix and supported cgc2 placements;
+- `placement_by_threshold.tsv` — support and ambiguity at every LIN threshold;
+- `placement_cgc2.tsv` — support for the 200/100/50/25/10/5 classifications;
+- `placement_pairwise.tsv` — query-to-reference raw and normalised allele distances;
+- `reference_label_map.tsv` — audit trail linking Genome Comparator labels to
+  reference metadata IDs.
+
+LINwalker normalises pairwise allele differences for loci missing in either genome
+using the same distance scaling used by BIGSdb's LINcode assignment logic. Placement
+is deliberately conservative: an uploaded genome can be described as sharing an
+official LIN prefix or being compatible with an official cgc2 group, but only
+PubMLST can assign a new **official** cgST/LINcode.
+
 
 ## Output structure (stable)
 
@@ -168,14 +217,14 @@ python -m linwalker stcc \
 python -m linwalker outbreak \
   --input data/derived/PATHSAFE_LINwalker_min.tsv \
   --outdir results/outbreak \
-  --thresholds 1-17 \
+  --thresholds 1-18 \
   --top-threshold 12 \
   --top-n 25 \
   --formats png svg
 ```
 
 ## Notes on interpretation (*Campylobacter*)
-- LIN thresholds are strictly 1–17
+- Current *Campylobacter* cgMLST-v2 LINcodes contain 18 components; LINwalker infers depth from the data by default.
 - LIN codes are treated as cumulative prefixes, not independent columns
 - Human isolates often dominate diversity curves and are therefore separated by default
 - LSDD provides a scale-aware measure of species boundary erosion
@@ -190,12 +239,12 @@ LIN codes describe genetic relatedness at multiple nested scales, from very coar
 LSDD (LIN Species Discordance Depth) is a per-isolate measure of how deep into the LIN hierarchy you have to go before species labels become inconsistent.
 
 In practice, for each isolate:
-1. LINwalker considers the isolate’s LIN clusters at each threshold (LIN 1 → LIN 17).
+1. LINwalker considers the isolate’s LIN clusters at each threshold (LIN 1 → LIN 18).
 2. At each threshold, it asks:
     - *“What is the majority species among all isolates sharing this LIN prefix?”*
 3. LSDD is defined as the earliest LIN level at which the isolate’s assigned species differs from the majority species of its LIN cluster.
 
-If no discordance is observed at any level (LIN 1–17), the isolate is assigned the maximum value.
+If no discordance is observed at any level (LIN 1–18), the isolate is assigned the maximum value.
 
 #### *How to interpret LSDD values*
 
