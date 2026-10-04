@@ -14,7 +14,8 @@ from .stcc import stcc_concordance
 from .outbreak import outbreak_descriptives
 from .tree_export import export_tree_metadata
 from .prep import prep_pubmlst_export
-from .utils import resolve_column
+from .utils import resolve_column, infer_lin_levels
+from .place import place_from_files, parse_diff_thresholds
 from .plotting import (
     plot_diversification_curve,
     plot_mixed_species,
@@ -136,12 +137,14 @@ def cmd_diversify(args: argparse.Namespace) -> None:
         raise ValueError(
             "Could not find a grouping/source column. Try --group-col and check your input columns."
         )
+    max_level = args.max_level or infer_lin_levels(df[args.lin_col])
+
     div = lin_diversification(
         df,
         lin_col=args.lin_col,
         group_col=args.group_col,
         thresholds=args.thresholds,
-        max_level=args.max_level,
+        max_level=max_level,
     )
 
     div.table.to_csv(tables / "diversification.tsv", sep="\t", index=False)
@@ -186,7 +189,7 @@ def cmd_diversify(args: argparse.Namespace) -> None:
                 lin_col=args.lin_col,
                 group_col=args.group_col,
                 thresholds=args.thresholds,
-                max_level=args.max_level,
+                max_level=max_level,
                 n_per_group=n_res,
                 n_reps=args.rarefy_reps,
                 seed=args.rarefy_seed,
@@ -215,7 +218,7 @@ def cmd_diversify(args: argparse.Namespace) -> None:
                 lin_col=args.lin_col,
                 group_col=args.group_col,
                 thresholds=args.thresholds,
-                max_level=args.max_level,
+                max_level=max_level,
                 n_per_group=n_all,
                 n_reps=args.rarefy_reps,
                 seed=args.rarefy_seed,
@@ -257,19 +260,21 @@ def cmd_introgress(args: argparse.Namespace) -> None:
     if args.species_col is None:
         raise ValueError("Could not find a species column. Use --species-col to specify it.")
 
+    max_level = args.max_level or infer_lin_levels(df[args.lin_col])
+
     mix = mixed_species_fraction(
         df,
         lin_col=args.lin_col,
         species_col=args.species_col,
         thresholds=args.thresholds,
-        max_level=args.max_level,
+        max_level=max_level,
     )
     lsdd = lsdd_by_level(
         df,
         lin_col=args.lin_col,
         species_col=args.species_col,
         thresholds=args.thresholds,
-        max_level=args.max_level,
+        max_level=max_level,
     )
 
     # plotting.plot_lsdd expects an "lsdd" column
@@ -279,7 +284,7 @@ def cmd_introgress(args: argparse.Namespace) -> None:
     mix.to_csv(tables / "mixed_species.tsv", sep="\t", index=False)
     lsdd.to_csv(tables / "lsdd.tsv", sep="\t", index=False)
 
-    plot_mixed_species(mix, outdir=plots, filename="mixed_species", formats=args.formats, title=args.title_mixed, max_level=args.max_level)
+    plot_mixed_species(mix, outdir=plots, filename="mixed_species", formats=args.formats, title=args.title_mixed, max_level=max_level)
     plot_lsdd(lsdd, outdir=plots, filename="lsdd", formats=args.formats, title=args.title_lsdd)
 
     logging.info("Wrote introgression outputs to: %s", outdir)
@@ -301,13 +306,15 @@ def cmd_stcc(args: argparse.Namespace) -> None:
             "Could not find a LIN column. Tried: lin_code, LINcode, LIN_code, LIN, lincode, lin."
         )
 
+    max_level = args.max_level or infer_lin_levels(df[args.lin_col])
+
     res = stcc_concordance(
         df,
         lin_col=args.lin_col,
         st_col=args.st_col,
         cc_col=args.cc_col,
         thresholds=args.thresholds,
-        max_level=args.max_level,
+        max_level=max_level,
     )
 
     res.table.to_csv(tables / "stcc_concordance.tsv", sep="\t", index=False)
@@ -410,6 +417,42 @@ def cmd_outbreak(args: argparse.Namespace) -> None:
     logging.info(f"Wrote outbreak outputs to: {outdir}")
 
 
+
+def cmd_place(args: argparse.Namespace) -> None:
+    """Place uploaded/unlabelled cgMLST profiles against LIN-coded references."""
+    outdir = Path(args.outdir)
+    _plots, tables, logs, _derived = _ensure_outdirs(outdir)
+    _setup_logging(logs / "place.log", verbose=getattr(args, "verbose", False))
+
+    thresholds = parse_diff_thresholds(args.threshold_diffs)
+    result = place_from_files(
+        args.profiles,
+        args.reference_metadata,
+        sheet=args.sheet,
+        sample_id_col=args.sample_id_col,
+        locus_prefix=args.locus_prefix,
+        reference_id_col=args.reference_id_col,
+        lin_col=args.lin_col,
+        cgst_col=args.cgst_col,
+        query_prefix=args.query_prefix,
+        thresholds=thresholds,
+        min_support=args.min_support,
+        min_prop=args.min_prop,
+    )
+
+    result.summary.to_csv(tables / "placement_summary.tsv", sep="\t", index=False)
+    result.by_threshold.to_csv(tables / "placement_by_threshold.tsv", sep="\t", index=False)
+    result.cgc2.to_csv(tables / "placement_cgc2.tsv", sep="\t", index=False)
+    result.pairwise.to_csv(tables / "placement_pairwise.tsv", sep="\t", index=False)
+    result.label_map.to_csv(tables / "reference_label_map.tsv", sep="\t", index=False)
+
+    logging.info(
+        "Placed %d query genomes against %d matched reference genomes.",
+        result.summary.shape[0],
+        result.pairwise["reference_id"].nunique(),
+    )
+    logging.info("Wrote placement outputs to: %s", tables)
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="linwalker",
@@ -444,7 +487,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--lin-col", default="lin_code")
     p.add_argument("--group-col", default="source")
     p.add_argument("--thresholds", default=None, help='e.g. "1-17" or "1,3,5"')
-    p.add_argument("--max-level", type=int, default=17)
+    p.add_argument("--max-level", type=int, default=None, help="Maximum LIN level (default: infer from LINcodes)")
     p.add_argument("--formats", nargs="+", default=["png", "svg"], help="Output image formats")
     p.add_argument("--title", default=None)
     # Rarefaction (sample-size normalisation)
@@ -484,6 +527,32 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--formats", nargs="+", default=["png", "svg"])
     p.add_argument("--title", default=None)
     p.set_defaults(func=cmd_stcc)
+
+
+    # place
+    p = sub.add_parser(
+        "place",
+        help="Place unlabelled cgMLST profiles relative to LIN-coded PubMLST references",
+        allow_abbrev=False,
+    )
+    p.add_argument("--profiles", required=True, help="Genome Comparator XLSX or sample x locus TSV/CSV")
+    p.add_argument("--reference-metadata", required=True, help="TSV with official reference IDs/LINcodes")
+    p.add_argument("--outdir", required=True)
+    p.add_argument("--sheet", default="all", help="Genome Comparator worksheet containing allele profiles")
+    p.add_argument("--sample-id-col", default=None, help="Sample ID column for TSV/CSV profiles")
+    p.add_argument("--locus-prefix", default="CAMP")
+    p.add_argument("--reference-id-col", default="pubmlst_id")
+    p.add_argument("--lin-col", default="LINcode_v2")
+    p.add_argument("--cgst-col", default="cgST_v2")
+    p.add_argument("--query-prefix", default=None, help="Optional prefix selecting query genomes (e.g. AZE_)")
+    p.add_argument(
+        "--threshold-diffs",
+        default="1119,1085,982,914,857,680,445,343,183,86,43,10,7,5,3,2,1,0",
+        help="LIN difference thresholds, coarse-to-fine",
+    )
+    p.add_argument("--min-support", type=int, default=1, help="Minimum labelled references for a supported placement")
+    p.add_argument("--min-prop", type=float, default=1.0, help="Required majority proportion among eligible references")
+    p.set_defaults(func=cmd_place)
 
     # tree
     p = sub.add_parser("tree", help="Export Microreact/iTOL metadata to colour an existing tree", allow_abbrev=False)
